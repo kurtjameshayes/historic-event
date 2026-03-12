@@ -1,0 +1,8 @@
+flask
+flask-cors
+pymongo[srv]
+anthropic
+tavily-python
+wikipedia
+python-dotenv
+gunicorn
