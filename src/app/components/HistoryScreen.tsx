@@ -219,6 +219,7 @@ export function HistoryScreen({ onLoadResults, onResumeSession }: HistoryScreenP
                         <div className="mt-2 flex items-center gap-3 text-xs text-slate-400">
                           <span>Depth: {session.config.max_depth}</span>
                           <span>Cycles: {session.config.max_cycles}</span>
+                          {session.config.max_sources_per_thread && <span>Sources: {session.config.max_sources_per_thread}</span>}
                         </div>
                       )}
                     </button>

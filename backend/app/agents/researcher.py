@@ -78,10 +78,30 @@ def _parse_date_to_timestamp(date_str: str) -> int:
     return 0
 
 
+def _score_source_relevance(source: dict, thread_name: str, thread_desc: str, queries: list[str]) -> float:
+    """Rate a source 0-1 by how well it matches the thread topic."""
+    title = source.get("title", "")
+    snippet = (source.get("content") or "")[:500]
+    text = f"{title} {snippet}".lower()
+
+    name_sim = _similarity(title, thread_name)
+    desc_sim = _similarity(snippet[:200], thread_desc) if thread_desc else 0.0
+    query_sim = max((_similarity(title, q) for q in queries), default=0.0) if queries else 0.0
+
+    content = source.get("raw_content") or source.get("content", "")
+    length_bonus = min(len(content) / 5000, 1.0) * 0.15
+
+    thread_tokens = set(thread_name.lower().split())
+    token_hits = sum(1 for tok in thread_tokens if tok in text) / max(len(thread_tokens), 1)
+
+    return 0.30 * name_sim + 0.20 * desc_sim + 0.20 * query_sim + 0.15 * token_hits + length_bonus
+
+
 def research_thread(
     thread: dict,
     existing_events: list[dict] | None = None,
     on_progress: callable | None = None,
+    max_sources: int = 5,
 ) -> dict:
     """Execute research for a single causal thread. Returns events and edges."""
     thread_id = thread["id"]
@@ -113,15 +133,24 @@ def research_thread(
                 continue
             viable_sources.append(result)
 
+    for src in viable_sources:
+        src["_relevance"] = _score_source_relevance(src, thread_name, thread_desc, queries)
+    viable_sources.sort(key=lambda s: s["_relevance"], reverse=True)
+
+    if max_sources > 0:
+        viable_sources = viable_sources[:max_sources]
+
     total_sources = len(viable_sources)
 
     for source_idx, result in enumerate(viable_sources, 1):
         content = result.get("raw_content") or result.get("content", "")
+        relevance = result.pop("_relevance", 0.0)
 
         all_sources.append({
             "url": result.get("url", ""),
             "title": result.get("title", ""),
             "quality": "secondary",
+            "relevance": round(relevance, 3),
             "excerpt": content[:200],
         })
 
@@ -140,22 +169,22 @@ def research_thread(
             logger.exception("LLM extraction failed for source: %s", result.get("url", ""))
             continue
 
-            for ev in extraction.get("events", []):
-                ev["thread_id"] = thread_id
-                ev["id"] = f"e-{uuid.uuid4().hex[:8]}"
-                ev["timestamp"] = _parse_date_to_timestamp(ev.get("date", ""))
-                ev.setdefault("sources", []).append({
-                    "url": result.get("url", ""),
-                    "title": result.get("title", ""),
-                    "quality": ev.pop("source_quality", "secondary"),
-                    "excerpt": content[:200],
-                })
-                all_events.append(ev)
+        for ev in extraction.get("events", []):
+            ev["thread_id"] = thread_id
+            ev["id"] = f"e-{uuid.uuid4().hex[:8]}"
+            ev["timestamp"] = _parse_date_to_timestamp(ev.get("date", ""))
+            ev.setdefault("sources", []).append({
+                "url": result.get("url", ""),
+                "title": result.get("title", ""),
+                "quality": ev.pop("source_quality", "secondary"),
+                "excerpt": content[:200],
+            })
+            all_events.append(ev)
 
-            for edge in extraction.get("causal_edges", []):
-                edge["thread_id"] = thread_id
-                edge["id"] = f"ed-{uuid.uuid4().hex[:8]}"
-                all_edges.append(edge)
+        for edge in extraction.get("causal_edges", []):
+            edge["thread_id"] = thread_id
+            edge["id"] = f"ed-{uuid.uuid4().hex[:8]}"
+            all_edges.append(edge)
 
     all_events = _deduplicate_events(all_events)
 

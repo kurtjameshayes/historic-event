@@ -9,15 +9,17 @@ interface InputScreenProps {
 
 export function InputScreen({ onSubmit, error }: InputScreenProps) {
   const [query, setQuery] = useState('');
+  // Advanced config hidden for now; fixed values: depth=1, cycles=1, sources=3, max 5 threads
   const [showAdvanced, setShowAdvanced] = useState(false);
-  const [depth, setDepth] = useState(3);
-  const [cycles, setCycles] = useState(5);
+  const [depth, setDepth] = useState(1);
+  const [cycles, setCycles] = useState(1);
+  const [sourcesPerThread, setSourcesPerThread] = useState(3);
   const [focusThreads, setFocusThreads] = useState('');
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
     if (!query.trim()) return;
-    onSubmit(query, { depth, cycles, focusThreads: focusThreads.split(',').map(t => t.trim()).filter(Boolean) });
+    onSubmit(query, { depth, cycles, sourcesPerThread, focusThreads: focusThreads.split(',').map(t => t.trim()).filter(Boolean), maxThreads: 5 });
   };
 
   const suggestions = [
@@ -75,10 +77,11 @@ export function InputScreen({ onSubmit, error }: InputScreenProps) {
               ))}
             </div>
             
+            {/* Advanced config hidden for now - remove 'hidden' class to restore */}
             <button
               type="button"
               onClick={() => setShowAdvanced(!showAdvanced)}
-              className="text-sm flex items-center gap-1.5 text-slate-500 hover:text-slate-800 transition-colors py-2 px-3 rounded-lg hover:bg-slate-50"
+              className="hidden text-sm flex items-center gap-1.5 text-slate-500 hover:text-slate-800 transition-colors py-2 px-3 rounded-lg hover:bg-slate-50"
             >
               <Settings2 className="w-4 h-4" />
               Advanced config
@@ -93,7 +96,7 @@ export function InputScreen({ onSubmit, error }: InputScreenProps) {
                 exit={{ height: 0, opacity: 0 }}
                 className="overflow-hidden border-t border-slate-100 bg-slate-50/50 rounded-b-xl"
               >
-                <div className="p-6 grid grid-cols-1 md:grid-cols-3 gap-6">
+                <div className="p-6 grid grid-cols-1 md:grid-cols-2 gap-6">
                   <div>
                     <label className="block text-sm font-medium text-slate-700 mb-2">Max Causal Depth (1-5)</label>
                     <input 
@@ -123,6 +126,22 @@ export function InputScreen({ onSubmit, error }: InputScreenProps) {
                       <span>Fast (1)</span>
                       <span className="font-medium text-indigo-600">{cycles} loops</span>
                       <span>Thorough (10)</span>
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-2">Sources per Topic (1-20)</label>
+                    <input 
+                      type="range" 
+                      min="1" max="20" 
+                      value={sourcesPerThread} 
+                      onChange={(e) => setSourcesPerThread(parseInt(e.target.value))}
+                      className="w-full accent-indigo-600"
+                    />
+                    <div className="flex justify-between text-xs text-slate-500 mt-1">
+                      <span>Fewer (1)</span>
+                      <span className="font-medium text-indigo-600">{sourcesPerThread} sources</span>
+                      <span>More (20)</span>
                     </div>
                   </div>
 

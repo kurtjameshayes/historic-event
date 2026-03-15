@@ -226,6 +226,19 @@ function BreadcrumbNav({
 }
 
 export function BrowseView({ data, onNodeClick }: BrowseViewProps) {
+  // #region agent log
+  React.useEffect(() => {
+    const threadIds = data.threads.map(t => t.id);
+    const eventThreadIds = [...new Set(data.events.map(e => e.thread_id))];
+    const matchCounts = data.threads.map(t => ({
+      threadId: t.id,
+      threadName: t.name,
+      matchingEvents: data.events.filter(e => e.thread_id === t.id).length,
+      matchingSubtopics: data.subtopics.filter(s => s.thread_id === t.id).length,
+    }));
+    fetch('http://127.0.0.1:7757/ingest/4ab05906-ade6-4987-86ba-70feade53d4d',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'4e9b6d'},body:JSON.stringify({sessionId:'4e9b6d',location:'BrowseView.tsx:mount',message:'BrowseView data',data:{totalEvents:data.events.length,totalSubtopics:data.subtopics.length,totalThreads:data.threads.length,threadIds,eventThreadIds,matchCounts,sampleEvent:data.events[0]||null},timestamp:Date.now()})}).catch(()=>{});
+  }, [data]);
+  // #endregion
   const [nav, setNav] = useState<BrowseNav>({ level: 'threads' });
 
   const eventsById = useMemo(() => {

@@ -46,8 +46,10 @@ def create_new_session():
         return jsonify({"error": "query is required"}), 400
 
     config = {
-        "max_depth": body.get("max_depth", Config.DEFAULT_MAX_DEPTH),
-        "max_cycles": body.get("max_cycles", Config.DEFAULT_MAX_CYCLES),
+        "max_depth": body.get("max_depth", 1),
+        "max_cycles": body.get("max_cycles", 1),
+        "max_sources_per_thread": body.get("max_sources_per_thread", 3),
+        "max_threads": body.get("max_threads", 5),
         "coverage_threshold": Config.DEFAULT_COVERAGE_THRESHOLD,
         "focus_threads": body.get("focus_threads", []),
     }
@@ -169,6 +171,13 @@ def get_timeline(session_id: str):
         if "session_id" in edge:
             del edge["session_id"]
 
+    # #region agent log
+    import json as _json_dbg; _log_path = "/Users/kurthayes/Dev/AI/historic-event/.cursor/debug-4e9b6d.log"
+    _trace = session.get("reasoning_trace", [])
+    _extracted_msgs = [t for t in _trace if "extracted" in t.get("msg", "").lower()]
+    with open(_log_path, "a") as _f:
+        _f.write(_json_dbg.dumps({"sessionId":"4e9b6d","runId":"post-fix","location":"routes.py:get_timeline","message":"post-fix check","data":{"session_id":session_id,"status":session.get("status"),"event_count":len(events),"edge_count":len(edges),"thread_count":len(threads),"subtopic_count":len(session.get("subtopics",[])),"extraction_msgs":_extracted_msgs},"timestamp":__import__("time").time()}, default=str) + "\n")
+    # #endregion
     return jsonify({
         "target_event": session.get("target_event", {}),
         "threads": threads,

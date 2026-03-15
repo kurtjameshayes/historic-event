@@ -24,7 +24,9 @@ export default function App() {
       const { session_id } = await createSession(q, {
         max_depth: c.depth,
         max_cycles: c.cycles,
+        max_sources_per_thread: c.sourcesPerThread ?? 3,
         focus_threads: c.focusThreads || [],
+        max_threads: c.maxThreads ?? 5,
       });
       setSessionId(session_id);
       setAppState('RESEARCHING');

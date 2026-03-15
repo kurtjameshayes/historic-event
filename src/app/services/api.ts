@@ -25,13 +25,15 @@ export interface SessionSummary {
   created_at: string;
   updated_at: string | null;
   completed_at: string | null;
-  config: { max_depth: number; max_cycles: number };
+  config: { max_depth: number; max_cycles: number; max_sources_per_thread?: number };
 }
 
 export interface SessionConfig {
   max_depth: number;
   max_cycles: number;
+  max_sources_per_thread: number;
   focus_threads: string[];
+  max_threads?: number;
 }
 
 export function createSession(query: string, config: SessionConfig): Promise<CreateSessionResponse> {

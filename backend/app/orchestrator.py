@@ -63,8 +63,10 @@ class Orchestrator:
         self.query = query
         self.config = config
         self.db = db
-        self.max_cycles = config.get("max_cycles", 5)
-        self.max_depth = config.get("max_depth", 3)
+        self.max_cycles = config.get("max_cycles", 1)
+        self.max_depth = config.get("max_depth", 1)
+        self.max_sources_per_thread = config.get("max_sources_per_thread", 3)
+        self.max_threads = config.get("max_threads", 5)
         self.coverage_threshold = config.get("coverage_threshold", 0.70)
         self.threads: list[dict] = []
         self.target_event: dict = {}
@@ -98,7 +100,7 @@ class Orchestrator:
                 break
 
             self.target_event = plan.get("target_event", {})
-            new_threads = plan.get("causal_threads", [])
+            new_threads = plan.get("causal_threads", [])[: self.max_threads]
 
             if self.cycle == 1:
                 self.threads = new_threads
@@ -113,6 +115,9 @@ class Orchestrator:
                                 self.threads[i]["search_queries"] = nt.get("search_queries", t.get("search_queries", []))
                                 self.threads[i]["priority"] = nt.get("priority", t.get("priority", 3))
                                 break
+
+            # Enforce max_threads limit (keep highest priority)
+            self.threads = sorted(self.threads, key=lambda t: t.get("priority", 3), reverse=True)[: self.max_threads]
 
             update_session(self.db, self.session_id, {
                 "target_event": self.target_event,
@@ -165,7 +170,7 @@ class Orchestrator:
                     _emit_reasoning(_sid, _db, "Research", f"[{_tname}] Analyzing source {idx}/{total}: {title}", "info")
 
                 try:
-                    result = research_thread(thread, existing_events, on_progress=_on_source_progress)
+                    result = research_thread(thread, existing_events, on_progress=_on_source_progress, max_sources=self.max_sources_per_thread)
                 except Exception:
                     logger.exception("Research failed for thread %s", thread["id"])
                     _emit_reasoning(
