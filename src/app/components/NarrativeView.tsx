@@ -12,12 +12,12 @@ export function NarrativeView({ data }: NarrativeViewProps) {
 
   return (
     <div className="max-w-4xl mx-auto py-8 px-6">
-      <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-8 md:p-12 text-slate-800 font-serif leading-relaxed text-lg relative overflow-hidden">
+      <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-8 md:p-12 text-slate-800 font-serif leading-loose text-base md:text-lg relative overflow-hidden">
         {/* Decorative corner */}
         <div className="absolute top-0 right-0 w-32 h-32 bg-indigo-50/50 rounded-bl-full pointer-events-none" />
         <BookOpen className="absolute top-6 right-6 w-8 h-8 text-indigo-100 pointer-events-none" />
 
-        <h2 className="text-3xl md:text-4xl font-bold text-slate-900 mb-6 font-sans tracking-tight">
+        <h2 className="text-2xl md:text-3xl font-semibold text-slate-900 mb-8 font-sans tracking-tight">
           Causal Summary: {data.target_event.name}
         </h2>
         
@@ -32,9 +32,9 @@ export function NarrativeView({ data }: NarrativeViewProps) {
           </div>
         </div>
 
-        <div className="space-y-6">
+        <div className="space-y-8">
           {paragraphs.map((p, i) => (
-            <p key={i} className="first-letter:text-5xl first-letter:font-bold first-letter:text-indigo-600 first-letter:mr-3 first-letter:float-left">
+            <p key={i} className="leading-relaxed">
               {p}
             </p>
           ))}

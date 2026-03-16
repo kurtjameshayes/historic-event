@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useRef, useCallback } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Brain, FileText, Search, Activity, CheckCircle, Clock, ServerCog, AlertTriangle, FastForward } from 'lucide-react';
+import { Brain, FileText, Search, Activity, CheckCircle, Clock, ServerCog, AlertTriangle } from 'lucide-react';
 import clsx from 'clsx';
 import { connectSSE } from '../services/sse';
 import { getTimeline } from '../services/api';
@@ -115,10 +115,6 @@ export function StatusScreen({ query, sessionId, onComplete }: StatusScreenProps
 
     return disconnect;
   }, [sessionId, handleComplete]);
-
-  const handleSkip = () => {
-    handleComplete();
-  };
 
   const getAgentColor = (agent: string) => {
     if (agent === 'Planner') return 'text-blue-600 bg-blue-50 border-blue-200';
@@ -252,17 +248,10 @@ export function StatusScreen({ query, sessionId, onComplete }: StatusScreenProps
 
           {/* Reasoning Trace Log */}
           <div className="w-2/3 flex flex-col bg-slate-900 rounded-2xl shadow-xl border border-slate-800 overflow-hidden relative">
-            <div className="bg-slate-950 px-5 py-3 border-b border-slate-800 flex justify-between items-center">
+            <div className="bg-slate-950 px-5 py-3 border-b border-slate-800">
               <h3 className="text-sm font-semibold text-slate-300 uppercase tracking-wide flex items-center gap-2">
                 <Brain className="w-4 h-4 text-indigo-400" /> Agent Reasoning Trace (SSE)
               </h3>
-
-              <button
-                onClick={handleSkip}
-                className="text-xs flex items-center gap-1 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg transition-colors"
-              >
-                <FastForward className="w-3 h-3" /> Skip to Results
-              </button>
             </div>
 
             <div ref={scrollRef} className="flex-1 overflow-y-auto p-5 space-y-3 font-mono text-sm scroll-smooth">

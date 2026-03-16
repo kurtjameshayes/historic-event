@@ -30,6 +30,7 @@ _lock = threading.Lock()
 
 
 def register_sse_queue(session_id: str) -> Queue:
+    """Register a new SSE queue for a session. API streams events to these queues."""
     q: Queue = Queue()
     with _lock:
         _session_queues.setdefault(session_id, []).append(q)
@@ -44,7 +45,7 @@ def unregister_sse_queue(session_id: str, q: Queue):
 
 
 def _emit(session_id: str, event_type: str, data: dict):
-    """Push an SSE event to all registered queues for this session."""
+    """Push an SSE event (phase_change, reasoning, thread_update, critique, complete) to all registered queues."""
     payload = {"event": event_type, "data": data}
     with _lock:
         for q in _session_queues.get(session_id, []):
@@ -52,22 +53,27 @@ def _emit(session_id: str, event_type: str, data: dict):
 
 
 def _emit_reasoning(session_id: str, db, agent: str, msg: str, msg_type: str = "info"):
+    """Persist reasoning to DB and push to SSE for live trace (agent=Planner|Research|Critic|Orchestrator)."""
     entry = {"agent": agent, "type": msg_type, "msg": msg}
     append_reasoning(db, session_id, entry)
     _emit(session_id, "reasoning", {"agent": agent, "message": msg, "type": msg_type})
 
 
 class Orchestrator:
+    """Runs the Plan → Act → Observe → Adapt research loop for a single session."""
+
     def __init__(self, session_id: str, query: str, config: dict, db):
         self.session_id = session_id
         self.query = query
         self.config = config
         self.db = db
+        # Loop limits and thresholds
         self.max_cycles = config.get("max_cycles", 1)
         self.max_depth = config.get("max_depth", 1)
         self.max_sources_per_thread = config.get("max_sources_per_thread", 3)
         self.max_threads = config.get("max_threads", 5)
         self.coverage_threshold = config.get("coverage_threshold", 0.70)
+        # Mutable state across cycles
         self.threads: list[dict] = []
         self.target_event: dict = {}
         self.cycle = 0
@@ -81,18 +87,20 @@ class Orchestrator:
             _emit(self.session_id, "error", {"message": "Unexpected error in research loop", "recoverable": False})
 
     def _run_loop(self):
+        # Critique from previous cycle; None on first cycle so planner gets no feedback
         critique = None
 
         while self.cycle < self.max_cycles:
             self.cycle += 1
             update_session(self.db, self.session_id, {"current_cycle": self.cycle})
 
-            # ---- PLAN phase ----
+            # ---- PLAN phase: decompose query into causal threads ----
             self._set_phase("PLAN")
             _emit_reasoning(self.session_id, self.db, "Planner", f"Initiating Plan Phase (Cycle {self.cycle})", "phase")
             _emit_reasoning(self.session_id, self.db, "Planner", f'Decomposing query "{self.query}"', "info")
 
             try:
+                # Planner receives critique on cycles 2+ to adapt (add threads, refine queries)
                 plan = run_planner(self.query, critique)
             except Exception:
                 logger.exception("Planner failed on cycle %d", self.cycle)
@@ -102,6 +110,7 @@ class Orchestrator:
             self.target_event = plan.get("target_event", {})
             new_threads = plan.get("causal_threads", [])[: self.max_threads]
 
+            # Merge plan with existing threads: add new ones, update search_queries/priority for existing
             if self.cycle == 1:
                 self.threads = new_threads
             else:
@@ -116,7 +125,7 @@ class Orchestrator:
                                 self.threads[i]["priority"] = nt.get("priority", t.get("priority", 3))
                                 break
 
-            # Enforce max_threads limit (keep highest priority)
+            # Cap threads by priority (highest first)
             self.threads = sorted(self.threads, key=lambda t: t.get("priority", 3), reverse=True)[: self.max_threads]
 
             update_session(self.db, self.session_id, {
@@ -131,6 +140,7 @@ class Orchestrator:
                 "success",
             )
 
+            # Notify UI of thread roster before research
             for t in self.threads:
                 _emit(self.session_id, "thread_update", {
                     "thread_id": t["id"],
@@ -142,10 +152,11 @@ class Orchestrator:
                     "message": f"Thread queued for research",
                 })
 
-            # ---- RESEARCH phase ----
+            # ---- RESEARCH phase: search sources, extract events and causal edges ----
             self._set_phase("RESEARCH")
             _emit_reasoning(self.session_id, self.db, "Orchestrator", "Transitioning to Research Phase", "phase")
 
+            # Process threads by priority; existing_events used for edge resolution across threads
             sorted_threads = sorted(self.threads, key=lambda t: t.get("priority", 3), reverse=True)
             existing_events = get_events(self.db, self.session_id)
 
@@ -166,10 +177,12 @@ class Orchestrator:
                         f'Executing search: "{sq}"', "info",
                     )
 
+                # Closure captures thread name for progress messages
                 def _on_source_progress(idx, total, title, _sid=self.session_id, _db=self.db, _tname=thread["name"]):
                     _emit_reasoning(_sid, _db, "Research", f"[{_tname}] Analyzing source {idx}/{total}: {title}", "info")
 
                 try:
+                    # Researcher: Tavily+Wikipedia search, LLM extraction, dedup, edge resolution
                     result = research_thread(thread, existing_events, on_progress=_on_source_progress, max_sources=self.max_sources_per_thread)
                 except Exception:
                     logger.exception("Research failed for thread %s", thread["id"])
@@ -188,6 +201,7 @@ class Orchestrator:
                     })
                     continue
 
+                # Map researcher event IDs to DB IDs for edge resolution
                 id_map = {}
                 for ev in result.get("events", []):
                     old_id = ev.pop("id", None)
@@ -195,6 +209,7 @@ class Orchestrator:
                     if old_id:
                         id_map[old_id] = new_id
 
+                # Resolve edge from/to titles to event IDs, then persist
                 for edge in result.get("causal_edges", []):
                     edge["from_event_id"] = id_map.get(edge.get("from_event_id", ""), edge.get("from_event_id", ""))
                     edge["to_event_id"] = id_map.get(edge.get("to_event_id", ""), edge.get("to_event_id", ""))
@@ -222,9 +237,10 @@ class Orchestrator:
                     "message": f"Research complete: {n_events} events, {n_edges} edges",
                 })
 
+                # Refresh for next thread (edges may reference events from prior threads)
                 existing_events = get_events(self.db, self.session_id)
 
-            # ---- EVALUATE phase ----
+            # ---- EVALUATE phase: critic assesses DAG for gaps and contradictions ----
             self._set_phase("EVALUATE")
             _emit_reasoning(self.session_id, self.db, "Orchestrator", "Transitioning to Evaluate Phase", "phase")
             _emit_reasoning(self.session_id, self.db, "Critic", "Assembling DAG and evaluating for gaps and contradictions", "info")
@@ -233,6 +249,7 @@ class Orchestrator:
             all_edges = get_edges(self.db, self.session_id)
 
             try:
+                # Critic LLM returns score, temporal/causal gaps, weak links, contradictions, recommendations
                 critique = run_critic(self.query, self.threads, all_events, all_edges)
             except Exception:
                 logger.exception("Critic failed on cycle %d", self.cycle)
@@ -243,6 +260,7 @@ class Orchestrator:
             gap_count = len(critique.get("temporal_gaps", [])) + len(critique.get("causal_gaps", []))
             weak_count = len(critique.get("weak_links", []))
 
+            # Emit critic findings for UI / reasoning trace
             for gap in critique.get("temporal_gaps", []):
                 _emit_reasoning(
                     self.session_id, self.db, "Critic",
@@ -262,6 +280,7 @@ class Orchestrator:
                 "recommendation_count": len(critique.get("recommendations", [])),
             })
 
+            # Use higher of critic score or heuristic coverage for termination decision
             local_cov = compute_coverage(self.threads, all_events, all_edges)
             effective_score = max(score, local_cov)
 
@@ -280,6 +299,7 @@ class Orchestrator:
                 )
                 break
             else:
+                # Adapt: critique feeds into next cycle's planner via run_planner(query, critique)
                 _emit_reasoning(
                     self.session_id, self.db, "Orchestrator",
                     f"Transitioning to Adapt Phase (Cycle {self.cycle + 1})",
@@ -288,7 +308,7 @@ class Orchestrator:
                 for rec in critique.get("recommendations", [])[:3]:
                     _emit_reasoning(self.session_id, self.db, "Planner", f"Adapting: {rec}", "info")
 
-        # ---- CATEGORIZE phase ----
+        # ---- CATEGORIZE phase: cluster events into subtopics ----
         self._set_phase("CATEGORIZE")
         _emit_reasoning(self.session_id, self.db, "Orchestrator", "Transitioning to Categorize Phase", "phase")
         _emit_reasoning(self.session_id, self.db, "Categorizer", "Clustering events into subtopics", "info")
@@ -304,6 +324,7 @@ class Orchestrator:
 
         update_session(self.db, self.session_id, {"subtopics": subtopics})
 
+        # Backfill subtopic_id on events for DAG payload
         from bson import ObjectId as _OID
         for st in subtopics:
             for eid in st["event_ids"]:
@@ -321,7 +342,7 @@ class Orchestrator:
             "success",
         )
 
-        # ---- RENDER phase ----
+        # ---- RENDER phase: generate narrative, mark complete ----
         self._set_phase("RENDER")
         _emit_reasoning(self.session_id, self.db, "Orchestrator", "Transitioning to Finalizing Phase", "phase")
         _emit_reasoning(self.session_id, self.db, "Renderer", "Generating Interactive DAG and Narrative Summary", "info")
@@ -329,7 +350,7 @@ class Orchestrator:
         all_events = get_events(self.db, self.session_id)
         all_edges = get_edges(self.db, self.session_id)
 
-        # Mark the target event
+        # Mark the target event for UI highlighting (match by title substring)
         target_name = self.target_event.get("name", "").lower()
         for ev in all_events:
             if target_name and target_name in ev.get("title", "").lower():
@@ -360,6 +381,7 @@ class Orchestrator:
         })
 
     def _set_phase(self, phase: str):
+        """Update session status and emit phase_change for UI pipeline display."""
         update_session(self.db, self.session_id, {"status": phase})
         _emit(self.session_id, "phase_change", {
             "phase": phase,
@@ -369,6 +391,7 @@ class Orchestrator:
 
 
 def start_orchestrator(session_id: str, query: str, config: dict, db) -> threading.Thread:
+    """Start the orchestrator in a background daemon thread. Returns the thread handle."""
     orch = Orchestrator(session_id, query, config, db)
     t = threading.Thread(target=orch.run, daemon=True)
     t.start()

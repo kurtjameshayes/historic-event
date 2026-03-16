@@ -1,5 +1,49 @@
 @custom-variant dark (&:is(.dark *));
 
+/* Historical / Homepage color palette */
+@theme inline {
+  --color-parchment-50: #fdfbf7;
+  --color-parchment-100: #f9f5eb;
+  --color-parchment-200: #f3ead5;
+  --color-parchment-300: #e8d9b8;
+  --color-parchment-400: #d9c199;
+  --color-parchment-500: #c9a876;
+  --color-parchment-600: #b08c5c;
+  --color-parchment-700: #8e6f47;
+  --color-parchment-800: #6d543a;
+  --color-parchment-900: #4d3b28;
+  --color-manuscript-50: #f0f4f8;
+  --color-manuscript-100: #dae3ed;
+  --color-manuscript-200: #b3c5d9;
+  --color-manuscript-300: #7f9fbb;
+  --color-manuscript-400: #557a9d;
+  --color-manuscript-500: #3d5a80;
+  --color-manuscript-600: #2e4665;
+  --color-manuscript-700: #23364b;
+  --color-manuscript-800: #1a2733;
+  --color-manuscript-900: #0f1823;
+  --color-bronze-50: #fef8f0;
+  --color-bronze-100: #fcebd6;
+  --color-bronze-200: #f8d4a8;
+  --color-bronze-300: #f3b76d;
+  --color-bronze-400: #e89440;
+  --color-bronze-500: #cd7b2e;
+  --color-bronze-600: #a86024;
+  --color-bronze-700: #854b1e;
+  --color-bronze-800: #633820;
+  --color-bronze-900: #42261a;
+  --color-sage-50: #f6f7f5;
+  --color-sage-100: #e8ebe6;
+  --color-sage-200: #d1d8cc;
+  --color-sage-300: #b0baab;
+  --color-sage-400: #8e9b89;
+  --color-sage-500: #6f7d6a;
+  --color-sage-600: #586354;
+  --color-sage-700: #454e43;
+  --color-sage-800: #343b33;
+  --color-sage-900: #232824;
+}
+
 :root {
   --font-size: 16px;
   --background: #ffffff;

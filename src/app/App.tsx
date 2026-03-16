@@ -1,13 +1,14 @@
 import React, { useState } from 'react';
-import { History, PlusCircle } from 'lucide-react';
+import { History, PlusCircle, Info } from 'lucide-react';
 import { InputScreen } from './components/InputScreen';
 import { StatusScreen } from './components/StatusScreen';
 import { ResultsScreen } from './components/ResultsScreen';
 import { HistoryScreen } from './components/HistoryScreen';
+import { AboutScreen } from './components/AboutScreen';
 import { createSession } from './services/api';
 import type { DAGData } from './types';
 
-type AppState = 'INPUT' | 'RESEARCHING' | 'RESULTS' | 'HISTORY';
+type AppState = 'INPUT' | 'RESEARCHING' | 'RESULTS' | 'HISTORY' | 'ABOUT';
 
 export default function App() {
   const [appState, setAppState] = useState<AppState>('INPUT');
@@ -87,14 +88,25 @@ export default function App() {
             className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md transition-colors ${navActive('HISTORY')}`}
           >
             <History className="w-3.5 h-3.5" />
-            History
+            Investigation Results
+          </button>
+          <button
+            onClick={() => setAppState('ABOUT')}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md transition-colors ${navActive('ABOUT')}`}
+          >
+            <Info className="w-3.5 h-3.5" />
+            About
           </button>
         </div>
       </nav>
 
       <div className="flex-1 overflow-hidden">
         {appState === 'INPUT' && (
-          <InputScreen onSubmit={handleStartSearch} error={error} />
+          <InputScreen
+            onSubmit={handleStartSearch}
+            error={error}
+            onAboutClick={() => setAppState('ABOUT')}
+          />
         )}
 
         {appState === 'RESEARCHING' && sessionId && (
@@ -114,6 +126,10 @@ export default function App() {
             onLoadResults={handleLoadResults}
             onResumeSession={handleResumeSession}
           />
+        )}
+
+        {appState === 'ABOUT' && (
+          <AboutScreen onBack={handleReset} />
         )}
       </div>
     </div>
