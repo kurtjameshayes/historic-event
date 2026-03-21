@@ -1,8 +1,8 @@
-flask
-flask-cors
-pymongo[srv]
-anthropic
-tavily-python
-wikipedia
-python-dotenv
-gunicorn
+flask>=3.0,<4
+flask-cors>=4.0,<5
+pymongo[srv]>=4.6,<5
+anthropic>=0.72,<1
+tavily-python>=0.7,<1
+wikipedia>=1.4,<2
+python-dotenv>=1.0,<2
+gunicorn>=23.0,<24

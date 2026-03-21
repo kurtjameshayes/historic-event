@@ -4,6 +4,7 @@ import json
 import logging
 from queue import Empty
 
+from bson.errors import InvalidId
 from flask import Blueprint, Response, jsonify, request, stream_with_context
 from pymongo.errors import PyMongoError
 
@@ -25,6 +26,16 @@ logger = logging.getLogger(__name__)
 
 api_bp = Blueprint("api", __name__)
 
+MAX_QUERY_LENGTH = 500
+MAX_CYCLES_LIMIT = 10
+MAX_THREADS_LIMIT = 10
+MAX_SOURCES_LIMIT = 10
+
+
+@api_bp.errorhandler(InvalidId)
+def handle_invalid_id(e):
+    return jsonify({"error": "Invalid ID format"}), 400
+
 
 @api_bp.errorhandler(PyMongoError)
 def handle_mongo_error(e):
@@ -41,16 +52,22 @@ def handle_runtime_error(e):
 
 @api_bp.route("/sessions", methods=["POST"])
 def create_new_session():
-    body = request.get_json(force=True)
+    if not request.is_json:
+        return jsonify({"error": "Content-Type must be application/json"}), 415
+    body = request.get_json()
+    if body is None:
+        return jsonify({"error": "Invalid JSON body"}), 400
     query = body.get("query", "").strip()
     if not query:
         return jsonify({"error": "query is required"}), 400
+    if len(query) > MAX_QUERY_LENGTH:
+        return jsonify({"error": f"query must be at most {MAX_QUERY_LENGTH} characters"}), 400
 
     config = {
-        "max_depth": body.get("max_depth", 1),
-        "max_cycles": body.get("max_cycles", 2),
-        "max_sources_per_thread": body.get("max_sources_per_thread", 3),
-        "max_threads": body.get("max_threads", 5),
+        "max_depth": min(int(body.get("max_depth", 1)), MAX_CYCLES_LIMIT),
+        "max_cycles": min(int(body.get("max_cycles", 2)), MAX_CYCLES_LIMIT),
+        "max_sources_per_thread": min(int(body.get("max_sources_per_thread", 3)), MAX_SOURCES_LIMIT),
+        "max_threads": min(int(body.get("max_threads", 5)), MAX_THREADS_LIMIT),
         "coverage_threshold": Config.DEFAULT_COVERAGE_THRESHOLD,
         "focus_threads": body.get("focus_threads", []),
     }
@@ -172,13 +189,6 @@ def get_timeline(session_id: str):
         if "session_id" in edge:
             del edge["session_id"]
 
-    # #region agent log
-    import json as _json_dbg; _log_path = "/Users/kurthayes/Dev/AI/historic-event/.cursor/debug-4e9b6d.log"
-    _trace = session.get("reasoning_trace", [])
-    _extracted_msgs = [t for t in _trace if "extracted" in t.get("msg", "").lower()]
-    with open(_log_path, "a") as _f:
-        _f.write(_json_dbg.dumps({"sessionId":"4e9b6d","runId":"post-fix","location":"routes.py:get_timeline","message":"post-fix check","data":{"session_id":session_id,"status":session.get("status"),"event_count":len(events),"edge_count":len(edges),"thread_count":len(threads),"subtopic_count":len(session.get("subtopics",[])),"extraction_msgs":_extracted_msgs},"timestamp":__import__("time").time()}, default=str) + "\n")
-    # #endregion
     return jsonify({
         "target_event": session.get("target_event", {}),
         "threads": threads,
@@ -206,8 +216,9 @@ def restart_investigation(session_id: str):
     if not session:
         return jsonify({"error": "session not found"}), 404
 
-    if session.get("status") in ("COMPLETE",):
-        return jsonify({"error": "session already complete"}), 409
+    status = session.get("status", "")
+    if status not in ("COMPLETE", "ERROR"):
+        return jsonify({"error": f"Cannot restart session with status '{status}'. Only COMPLETE or ERROR sessions can be restarted."}), 409
 
     clear_session_data(db, session_id)
     next_run_seq = increment_session_critic_run_seq(db, session_id)
@@ -236,7 +247,15 @@ def deepen_investigation(session_id: str):
     if not session:
         return jsonify({"error": "session not found"}), 404
 
-    body = request.get_json(force=True)
+    status = session.get("status", "")
+    if status not in ("COMPLETE", "ERROR"):
+        return jsonify({"error": f"Cannot deepen session with status '{status}'. Only COMPLETE or ERROR sessions can be deepened."}), 409
+
+    if not request.is_json:
+        return jsonify({"error": "Content-Type must be application/json"}), 415
+    body = request.get_json()
+    if body is None:
+        return jsonify({"error": "Invalid JSON body"}), 400
     thread_id = body.get("thread_id")
     if not thread_id:
         return jsonify({"error": "thread_id is required"}), 400

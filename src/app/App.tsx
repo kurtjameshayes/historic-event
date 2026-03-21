@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useCallback } from 'react';
 import { History, PlusCircle, Info } from 'lucide-react';
 import { InputScreen } from './components/InputScreen';
 import { StatusScreen } from './components/StatusScreen';
@@ -36,10 +36,10 @@ export default function App() {
     }
   };
 
-  const handleResearchComplete = (data: DAGData) => {
+  const handleResearchComplete = useCallback((data: DAGData) => {
     setDagData(data);
     setAppState('RESULTS');
-  };
+  }, []);
 
   const handleReset = () => {
     setAppState('INPUT');

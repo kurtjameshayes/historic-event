@@ -15,7 +15,11 @@ class Config:
     )
     FLASK_DEBUG = os.getenv("FLASK_DEBUG", "false").lower() == "true"
     LLM_MODEL = os.getenv("LLM_MODEL", "claude-sonnet-4-20250514")
-    LLM_MAX_TOKENS = int(os.getenv("LLM_MAX_TOKENS", "4096"))
+    try:
+        LLM_MAX_TOKENS = int(os.getenv("LLM_MAX_TOKENS", "4096"))
+    except (ValueError, TypeError):
+        LLM_MAX_TOKENS = 4096
+    CORS_ORIGINS = os.getenv("CORS_ORIGINS", "*")
     DEFAULT_MAX_DEPTH = 3
     DEFAULT_MAX_CYCLES = 5
     DEFAULT_MAX_SOURCES_PER_THREAD = 5

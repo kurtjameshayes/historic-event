@@ -49,7 +49,10 @@ def call_llm(
                 max_tokens=max_tokens,
                 system=system_prompt,
                 messages=[{"role": "user", "content": user_prompt}],
+                timeout=120.0,
             )
+            if not response.content:
+                raise ValueError("LLM returned empty response content")
             raw = response.content[0].text
 
             if not parse_json:

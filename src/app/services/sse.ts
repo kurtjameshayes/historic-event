@@ -74,9 +74,13 @@ export function connectSSE(sessionId: string, callbacks: SSECallbacks): () => vo
     source.close();
   });
 
-  source.addEventListener('error', (e) => {
-    if (e instanceof MessageEvent) {
-      callbacks.onError?.(JSON.parse(e.data));
+  source.addEventListener('error', (e: Event) => {
+    if ('data' in e) {
+      try {
+        callbacks.onError?.(JSON.parse((e as MessageEvent).data));
+      } catch {
+        callbacks.onError?.({ message: 'SSE connection lost', recoverable: true });
+      }
     }
   });
 

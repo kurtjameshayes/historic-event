@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import hashlib
+import re
 import uuid
 from datetime import datetime, timezone
 from functools import wraps
@@ -58,6 +59,7 @@ def _oid(val) -> ObjectId:
 def _serialize_doc(doc: dict | None) -> dict | None:
     if doc is None:
         return None
+    doc = {**doc}
     doc["id"] = str(doc.pop("_id"))
     for key in ("session_id", "from_event_id", "to_event_id"):
         if key in doc and isinstance(doc[key], ObjectId):
@@ -131,7 +133,7 @@ def list_sessions(
 ) -> list[dict]:
     query_filter: dict = {}
     if search:
-        query_filter["query"] = {"$regex": search, "$options": "i"}
+        query_filter["query"] = {"$regex": re.escape(search), "$options": "i"}
     cursor = (
         db.sessions.find(query_filter, _SESSION_LIST_PROJECTION)
         .sort("created_at", -1)
@@ -151,7 +153,7 @@ def clear_session_data(db: Database, session_id: str):
 # --------------- Events ---------------
 
 @_mongo_retry
-def upsert_event(db: Database, session_id: str, event: dict) -> str:
+def insert_event(db: Database, session_id: str, event: dict) -> str:
     event["session_id"] = _oid(session_id)
     if "id" in event:
         event.pop("id")
@@ -171,7 +173,7 @@ def get_event(db: Database, event_id: str) -> dict | None:
 # --------------- Causal Edges ---------------
 
 @_mongo_retry
-def upsert_edge(db: Database, session_id: str, edge: dict) -> str:
+def insert_edge(db: Database, session_id: str, edge: dict) -> str:
     edge["session_id"] = _oid(session_id)
     if "id" in edge:
         edge.pop("id")

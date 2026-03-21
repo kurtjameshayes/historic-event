@@ -17,8 +17,8 @@ from .models import (
     get_session,
     update_session,
     append_reasoning,
-    upsert_event,
-    upsert_edge,
+    insert_event,
+    insert_edge,
     get_events,
     get_edges,
     insert_critic_run,
@@ -290,7 +290,7 @@ class Orchestrator:
                 id_map = {}
                 for ev in result.get("events", []):
                     old_id = ev.pop("id", None)
-                    new_id = upsert_event(self.db, self.session_id, ev)
+                    new_id = insert_event(self.db, self.session_id, ev)
                     if old_id:
                         id_map[old_id] = new_id
 
@@ -298,7 +298,7 @@ class Orchestrator:
                 for edge in result.get("causal_edges", []):
                     edge["from_event_id"] = id_map.get(edge.get("from_event_id", ""), edge.get("from_event_id", ""))
                     edge["to_event_id"] = id_map.get(edge.get("to_event_id", ""), edge.get("to_event_id", ""))
-                    upsert_edge(self.db, self.session_id, edge)
+                    insert_edge(self.db, self.session_id, edge)
 
                 n_events = len(result.get("events", []))
                 n_edges = len(result.get("causal_edges", []))
@@ -438,7 +438,7 @@ class Orchestrator:
                         {"$set": {"subtopic_id": st["id"]}},
                     )
                 except Exception:
-                    pass
+                    logger.warning("Failed to backfill subtopic_id for event %s", eid, exc_info=True)
 
         _emit_reasoning(
             self.session_id, self.db, "Categorizer",

@@ -6,6 +6,16 @@ import { TimelineView } from './TimelineView';
 import { NarrativeView } from './NarrativeView';
 import { BrowseView } from './BrowseView';
 
+function isSafeUrl(url: string | undefined): boolean {
+  if (!url) return false;
+  try {
+    const parsed = new URL(url, window.location.origin);
+    return parsed.protocol === 'http:' || parsed.protocol === 'https:';
+  } catch {
+    return false;
+  }
+}
+
 interface ResultsScreenProps {
   data: DAGData;
   onReset: () => void;
@@ -166,9 +176,11 @@ export function ResultsScreen({ data, onReset }: ResultsScreenProps) {
                               <span className="text-xs font-bold px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-800 capitalize">
                                 {src.quality}
                               </span>
-                              <a href={src.url} className="text-slate-400 hover:text-indigo-600">
-                                <ExternalLink className="w-3 h-3" />
-                              </a>
+                              {isSafeUrl(src.url) && (
+                                <a href={src.url} target="_blank" rel="noopener noreferrer" className="text-slate-400 hover:text-indigo-600">
+                                  <ExternalLink className="w-3 h-3" />
+                                </a>
+                              )}
                             </div>
                             <div className="font-medium text-sm text-slate-800 mb-1">{src.title}</div>
                             <blockquote className="text-xs text-slate-500 border-l-2 border-slate-300 pl-2 italic">

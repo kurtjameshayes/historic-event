@@ -49,6 +49,7 @@ export function StatusScreen({ query, sessionId, onComplete }: StatusScreenProps
   const [threads, setThreads] = useState<ThreadInfo[]>([]);
   const scrollRef = useRef<HTMLDivElement>(null);
   const completedRef = useRef(false);
+  const timeoutRefs = useRef<ReturnType<typeof setTimeout>[]>([]);
 
   useEffect(() => {
     if (scrollRef.current) {
@@ -76,6 +77,8 @@ export function StatusScreen({ query, sessionId, onComplete }: StatusScreenProps
   }, [sessionId, onComplete]);
 
   useEffect(() => {
+    const localTimeouts: ReturnType<typeof setTimeout>[] = [];
+
     const disconnect = connectSSE(sessionId, {
       onPhaseChange(data) {
         setCurrentPhaseIdx(phaseToIndex(data.phase));
@@ -98,22 +101,29 @@ export function StatusScreen({ query, sessionId, onComplete }: StatusScreenProps
 
         if (data.message.match(/Found \d+ relevant/)) {
           const match = data.message.match(/Found (\d+)/);
-          if (match) setSourcesCount(prev => prev + parseInt(match[1]));
+          if (match) setSourcesCount(prev => prev + parseInt(match[1], 10));
         }
       },
       onCritique() {},
       onComplete() {
-        setTimeout(handleComplete, 500);
+        const t = setTimeout(handleComplete, 500);
+        localTimeouts.push(t);
+        timeoutRefs.current.push(t);
       },
       onError(data) {
         setLog(prev => [...prev, { agent: 'System', type: 'warning', msg: data.message }]);
         if (!data.recoverable) {
-          setTimeout(handleComplete, 1500);
+          const t = setTimeout(handleComplete, 1500);
+          localTimeouts.push(t);
+          timeoutRefs.current.push(t);
         }
       },
     });
 
-    return disconnect;
+    return () => {
+      disconnect();
+      localTimeouts.forEach(clearTimeout);
+    };
   }, [sessionId, handleComplete]);
 
   const getAgentColor = (agent: string) => {

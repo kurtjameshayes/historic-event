@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+import atexit
 import logging
 
-from flask import Flask
+from flask import Flask, jsonify
 from flask_cors import CORS
 from pymongo import MongoClient
 
@@ -25,10 +26,16 @@ def create_app() -> Flask:
 
     app = Flask(__name__)
     app.config.from_object(Config)
-    CORS(app)
+
+    cors_origins = Config.CORS_ORIGINS
+    if cors_origins == "*":
+        CORS(app)
+    else:
+        CORS(app, origins=[o.strip() for o in cors_origins.split(",")])
 
     try:
         mongo_client = MongoClient(Config.MONGODB_URI, serverSelectionTimeoutMS=5000)
+        atexit.register(mongo_client.close)
         try:
             db = mongo_client.get_default_database()
         except Exception:
@@ -44,6 +51,17 @@ def create_app() -> Flask:
             ensure_indexes(db)
         except Exception as e:
             logger.warning("Could not create indexes (MongoDB may not be available): %s", e)
+
+    @app.route("/health")
+    def health_check():
+        mongo_ok = db is not None
+        if mongo_ok:
+            try:
+                mongo_client.admin.command("ping")
+            except Exception:
+                mongo_ok = False
+        status_code = 200 if mongo_ok else 503
+        return jsonify({"status": "ok" if mongo_ok else "degraded", "mongodb": mongo_ok}), status_code
 
     from .api.routes import api_bp
     app.register_blueprint(api_bp, url_prefix="/api")
