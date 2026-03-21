@@ -14,12 +14,22 @@ from .agents.renderer import generate_narrative
 from .agents.categorizer import categorize_events
 from .services.scoring import compute_coverage
 from .models import (
+    get_session,
     update_session,
     append_reasoning,
     upsert_event,
     upsert_edge,
     get_events,
     get_edges,
+    insert_critic_run,
+    upsert_prompt_memory_entries,
+    get_prompt_memory,
+)
+from .services.prompt_memory import (
+    GLOBAL_PROMPT_MEMORY_SCOPE,
+    build_query_scope_key,
+    collapse_prompt_memory,
+    distill_prompt_memory_entries,
 )
 
 logger = logging.getLogger(__name__)
@@ -67,8 +77,9 @@ class Orchestrator:
         self.query = query
         self.config = config
         self.db = db
+        session = get_session(db, session_id) or {}
         # Loop limits and thresholds
-        self.max_cycles = config.get("max_cycles", 1)
+        self.max_cycles = config.get("max_cycles", 2)
         self.max_depth = config.get("max_depth", 1)
         self.max_sources_per_thread = config.get("max_sources_per_thread", 3)
         self.max_threads = config.get("max_threads", 5)
@@ -77,6 +88,70 @@ class Orchestrator:
         self.threads: list[dict] = []
         self.target_event: dict = {}
         self.cycle = 0
+        self.run_seq = int(session.get("critic_run_seq", 0))
+        self.query_scope_key = build_query_scope_key(query)
+
+    def _load_prompt_memory_bundle(self) -> dict[str, list[dict]]:
+        bundle: dict[str, list[dict]] = {}
+        for target in ("planner", "researcher", "critic"):
+            combined = (
+                get_prompt_memory(self.db, self.query_scope_key, target, limit=12)
+                + get_prompt_memory(self.db, GLOBAL_PROMPT_MEMORY_SCOPE, target, limit=12)
+            )
+            deduped: list[dict] = []
+            seen: set[str] = set()
+            for entry in combined:
+                text = " ".join((entry.get("text") or "").split())
+                if not text or text in seen:
+                    continue
+                seen.add(text)
+                deduped.append(entry)
+            bundle[target] = deduped
+        return bundle
+
+    def _prompt_memory_texts(self, bundle: dict[str, list[dict]], target: str) -> list[str]:
+        return collapse_prompt_memory(bundle.get(target, []), target)
+
+    def _prompt_memory_context(self, bundle: dict[str, list[dict]]) -> dict[str, list[dict]]:
+        context: dict[str, list[dict]] = {}
+        for target, entries in bundle.items():
+            if not entries:
+                continue
+            context[target] = [
+                {
+                    "id": entry.get("id"),
+                    "scope_key": entry.get("scope_key"),
+                    "category": entry.get("category"),
+                    "text": entry.get("text"),
+                }
+                for entry in entries
+            ]
+        return context
+
+    def _persist_prompt_memory(self, critique: dict, critic_run_id: str):
+        entries = distill_prompt_memory_entries(self.query, critique)
+        if not entries:
+            return
+
+        source = {
+            "type": "critic",
+            "session_id": self.session_id,
+            "critic_run_id": critic_run_id,
+            "run_seq": self.run_seq,
+            "cycle": self.cycle,
+        }
+        for entry in entries:
+            entry["source"] = source
+
+        saved_entries = upsert_prompt_memory_entries(self.db, entries)
+        if saved_entries:
+            _emit_reasoning(
+                self.session_id,
+                self.db,
+                "Orchestrator",
+                f"Persisted {len(saved_entries)} prompt memory entries from critique feedback",
+                "info",
+            )
 
     def run(self):
         try:
@@ -93,6 +168,10 @@ class Orchestrator:
         while self.cycle < self.max_cycles:
             self.cycle += 1
             update_session(self.db, self.session_id, {"current_cycle": self.cycle})
+            prompt_memory_bundle = self._load_prompt_memory_bundle()
+            planner_prompt_memory = self._prompt_memory_texts(prompt_memory_bundle, "planner")
+            researcher_prompt_memory = self._prompt_memory_texts(prompt_memory_bundle, "researcher")
+            critic_prompt_memory = self._prompt_memory_texts(prompt_memory_bundle, "critic")
 
             # ---- PLAN phase: decompose query into causal threads ----
             self._set_phase("PLAN")
@@ -101,7 +180,7 @@ class Orchestrator:
 
             try:
                 # Planner receives critique on cycles 2+ to adapt (add threads, refine queries)
-                plan = run_planner(self.query, critique)
+                plan = run_planner(self.query, critique, planner_prompt_memory)
             except Exception:
                 logger.exception("Planner failed on cycle %d", self.cycle)
                 _emit_reasoning(self.session_id, self.db, "Planner", "Planner failed, aborting cycle", "warning")
@@ -183,7 +262,13 @@ class Orchestrator:
 
                 try:
                     # Researcher: Tavily+Wikipedia search, LLM extraction, dedup, edge resolution
-                    result = research_thread(thread, existing_events, on_progress=_on_source_progress, max_sources=self.max_sources_per_thread)
+                    result = research_thread(
+                        thread,
+                        existing_events,
+                        on_progress=_on_source_progress,
+                        max_sources=self.max_sources_per_thread,
+                        prompt_memory=researcher_prompt_memory,
+                    )
                 except Exception:
                     logger.exception("Research failed for thread %s", thread["id"])
                     _emit_reasoning(
@@ -250,7 +335,7 @@ class Orchestrator:
 
             try:
                 # Critic LLM returns score, temporal/causal gaps, weak links, contradictions, recommendations
-                critique = run_critic(self.query, self.threads, all_events, all_edges)
+                critique = run_critic(self.query, self.threads, all_events, all_edges, critic_prompt_memory)
             except Exception:
                 logger.exception("Critic failed on cycle %d", self.cycle)
                 _emit_reasoning(self.session_id, self.db, "Critic", "Critic evaluation failed", "warning")
@@ -283,6 +368,25 @@ class Orchestrator:
             # Use higher of critic score or heuristic coverage for termination decision
             local_cov = compute_coverage(self.threads, all_events, all_edges)
             effective_score = max(score, local_cov)
+            critic_run_id = insert_critic_run(
+                self.db,
+                self.session_id,
+                self.run_seq,
+                self.cycle,
+                critique,
+                {
+                    "event_count": len(all_events),
+                    "edge_count": len(all_edges),
+                    "thread_count": len(self.threads),
+                    "score": score,
+                    "coverage_score": local_cov,
+                    "effective_score": effective_score,
+                    "coverage_threshold": self.coverage_threshold,
+                },
+                prompt_memory_context=self._prompt_memory_context(prompt_memory_bundle),
+            )
+            update_session(self.db, self.session_id, {"last_critique_id": critic_run_id})
+            self._persist_prompt_memory(critique, critic_run_id)
 
             if effective_score >= self.coverage_threshold:
                 _emit_reasoning(

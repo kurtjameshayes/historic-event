@@ -27,6 +27,7 @@ You MUST return a single JSON object with this exact schema:
 Rules:
 - Only extract claims that are explicitly stated or strongly implied by the source text
 - Do NOT infer causation beyond what the source supports
+- For each causal edge, from_event_title MUST be the CAUSE and to_event_title the EFFECT. For direct historical causation, the cause must not be chronologically later than the effect (earlier or same period → later outcome). If the source describes influence of an earlier movement on a later one, point the edge from earlier to later, not the reverse
 - Rate source quality honestly: primary (original documents, firsthand accounts), secondary (reputable journalism, academic analysis), tertiary (encyclopedias, general reference), opinion (editorials, blogs)
 - For each event, provide the most precise date available
 - If no events or causal links are found, return empty arrays
@@ -39,10 +40,19 @@ def build_researcher_prompt(
     source_text: str,
     source_url: str,
     source_title: str,
+    prompt_memory: list[str] | None = None,
 ) -> str:
-    return f"""Extract historical events and causal claims from this source text.
+    prompt = """Extract historical events and causal claims from this source text.
 
-CAUSAL THREAD CONTEXT:
+"""
+
+    if prompt_memory:
+        prompt += "--- REUSABLE PROMPT GUIDANCE ---\n"
+        for item in prompt_memory[:6]:
+            prompt += f"  - {item}\n"
+        prompt += "\n"
+
+    prompt += f"""CAUSAL THREAD CONTEXT:
 Thread: {thread_name}
 Description: {thread_description}
 
@@ -55,3 +65,4 @@ URL: {source_url}
 --- END SOURCE TEXT ---
 
 Extract all dated events and causal relationships relevant to the thread described above."""
+    return prompt

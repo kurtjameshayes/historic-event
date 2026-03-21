@@ -14,7 +14,13 @@ MAX_EDGES_FOR_CRITIC = 150
 MAX_PROMPT_CHARS = 600_000
 
 
-def run_critic(query: str, threads: list[dict], events: list[dict], edges: list[dict]) -> dict:
+def run_critic(
+    query: str,
+    threads: list[dict],
+    events: list[dict],
+    edges: list[dict],
+    prompt_memory: list[str] | None = None,
+) -> dict:
     """Evaluate the current DAG and return a structured critique."""
     capped_events = sorted(events, key=lambda e: e.get("timestamp", 0))[:MAX_EVENTS_FOR_CRITIC]
     event_ids = {e.get("id") for e in capped_events}
@@ -57,7 +63,7 @@ def run_critic(query: str, threads: list[dict], events: list[dict], edges: list[
         dag_data["edges"] = [ed for ed in dag_data["edges"] if ed["from_event_id"] in kept_ids and ed["to_event_id"] in kept_ids]
         dag_json = json.dumps(dag_data, default=str)
 
-    result = call_llm(CRITIC_SYSTEM, build_critic_prompt(query, dag_json), max_tokens=4096)
+    result = call_llm(CRITIC_SYSTEM, build_critic_prompt(query, dag_json, prompt_memory), max_tokens=4096)
 
     result.setdefault("overall_score", 0.0)
     result.setdefault("is_sufficient", result["overall_score"] >= 0.70)

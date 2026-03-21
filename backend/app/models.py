@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import logging
+import hashlib
 import uuid
 from datetime import datetime, timezone
 from functools import wraps
 
 from bson import ObjectId
 from pymongo import ASCENDING
+from pymongo import ReturnDocument
 from pymongo.database import Database
 from pymongo.errors import PyMongoError
 
@@ -37,6 +39,16 @@ def ensure_indexes(db: Database):
     db.causal_edges.create_index([("session_id", ASCENDING), ("to_event_id", ASCENDING)])
     db.research_cache.create_index("query_hash", unique=True)
     db.research_cache.create_index("ttl_expires", expireAfterSeconds=0)
+    db.critic_runs.create_index(
+        [("session_id", ASCENDING), ("run_seq", ASCENDING), ("cycle", ASCENDING)],
+        unique=True,
+    )
+    db.critic_runs.create_index([("session_id", ASCENDING), ("created_at", ASCENDING)])
+    db.prompt_memory.create_index(
+        [("scope_key", ASCENDING), ("target", ASCENDING), ("text_hash", ASCENDING)],
+        unique=True,
+    )
+    db.prompt_memory.create_index([("scope_key", ASCENDING), ("target", ASCENDING), ("updated_at", ASCENDING)])
 
 
 def _oid(val) -> ObjectId:
@@ -67,6 +79,8 @@ def create_session(db: Database, query: str, config: dict) -> tuple[str, str]:
         "config": config,
         "status": "PLAN",
         "current_cycle": 0,
+        "critic_run_seq": 0,
+        "last_critique_id": None,
         "causal_threads": [],
         "narrative": None,
         "reasoning_trace": [],
@@ -167,6 +181,119 @@ def upsert_edge(db: Database, session_id: str, edge: dict) -> str:
 
 def get_edges(db: Database, session_id: str) -> list[dict]:
     cursor = db.causal_edges.find({"session_id": _oid(session_id)})
+    return [_serialize_doc(doc) for doc in cursor]
+
+
+# --------------- Critic Runs ---------------
+
+@_mongo_retry
+def insert_critic_run(
+    db: Database,
+    session_id: str,
+    run_seq: int,
+    cycle: int,
+    critique: dict,
+    dag_stats: dict,
+    prompt_memory_context: dict | None = None,
+) -> str:
+    now = datetime.now(timezone.utc)
+    result = db.critic_runs.insert_one({
+        "session_id": _oid(session_id),
+        "run_seq": run_seq,
+        "cycle": cycle,
+        "phase": "EVALUATE",
+        "critique": critique,
+        "dag_stats": dag_stats,
+        "prompt_memory_context": prompt_memory_context or {},
+        "created_at": now,
+        "updated_at": now,
+    })
+    return str(result.inserted_id)
+
+
+def list_critic_runs(db: Database, session_id: str, limit: int = 20) -> list[dict]:
+    cursor = (
+        db.critic_runs.find({"session_id": _oid(session_id)})
+        .sort([("run_seq", -1), ("cycle", -1), ("created_at", -1)])
+        .limit(limit)
+    )
+    return [_serialize_doc(doc) for doc in cursor]
+
+
+@_mongo_retry
+def increment_session_critic_run_seq(db: Database, session_id: str) -> int:
+    doc = db.sessions.find_one_and_update(
+        {"_id": _oid(session_id)},
+        {
+            "$inc": {"critic_run_seq": 1},
+            "$set": {"updated_at": datetime.now(timezone.utc)},
+        },
+        return_document=ReturnDocument.AFTER,
+    )
+    return int((doc or {}).get("critic_run_seq", 0))
+
+
+# --------------- Prompt Memory ---------------
+
+def _prompt_memory_text_hash(text: str) -> str:
+    normalized = " ".join((text or "").strip().lower().split())
+    return hashlib.sha256(normalized.encode("utf-8")).hexdigest()
+
+
+@_mongo_retry
+def upsert_prompt_memory_entries(db: Database, entries: list[dict]) -> list[dict]:
+    saved_entries: list[dict] = []
+    now = datetime.now(timezone.utc)
+
+    for entry in entries:
+        text = " ".join((entry.get("text") or "").split())
+        if not text:
+            continue
+
+        scope_key = entry.get("scope_key", "global")
+        target = entry.get("target", "planner")
+        category = entry.get("category", "recommendation")
+        metadata = entry.get("metadata", {})
+        source = entry.get("source", {})
+        text_hash = _prompt_memory_text_hash(text)
+
+        doc = db.prompt_memory.find_one_and_update(
+            {
+                "scope_key": scope_key,
+                "target": target,
+                "text_hash": text_hash,
+            },
+            {
+                "$set": {
+                    "scope_key": scope_key,
+                    "target": target,
+                    "category": category,
+                    "text": text,
+                    "text_hash": text_hash,
+                    "metadata": metadata,
+                    "source": source,
+                    "updated_at": now,
+                },
+                "$setOnInsert": {
+                    "created_at": now,
+                },
+            },
+            upsert=True,
+            return_document=ReturnDocument.AFTER,
+        )
+
+        if doc:
+            saved_entries.append(_serialize_doc(doc))
+
+    return saved_entries
+
+
+def get_prompt_memory(db: Database, scope_key: str, target: str, limit: int = 10) -> list[dict]:
+    cursor = (
+        db.prompt_memory.find({"scope_key": scope_key, "target": target})
+        .sort("updated_at", -1)
+        .limit(limit)
+    )
     return [_serialize_doc(doc) for doc in cursor]
 
 

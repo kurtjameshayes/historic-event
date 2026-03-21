@@ -30,8 +30,17 @@ Rules:
 - Return ONLY the JSON object, no markdown fences or extra text"""
 
 
-def build_planner_prompt(query: str, critique: dict | None = None) -> str:
+def build_planner_prompt(
+    query: str,
+    critique: dict | None = None,
+    prompt_memory: list[str] | None = None,
+) -> str:
     prompt = f'Analyze this historical question and decompose it into causal threads:\n\n"{query}"'
+
+    if prompt_memory:
+        prompt += "\n\n--- REUSABLE PROMPT GUIDANCE ---\n"
+        for item in prompt_memory[:8]:
+            prompt += f"  - {item}\n"
 
     if critique:
         prompt += "\n\n--- CRITIC FEEDBACK FROM PREVIOUS CYCLE ---\n"

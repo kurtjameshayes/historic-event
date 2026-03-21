@@ -102,6 +102,7 @@ def research_thread(
     existing_events: list[dict] | None = None,
     on_progress: callable | None = None,
     max_sources: int = 5,
+    prompt_memory: list[str] | None = None,
 ) -> dict:
     """Execute research for a single causal thread. Returns events and edges."""
     thread_id = thread["id"]
@@ -163,6 +164,7 @@ def research_thread(
                 build_researcher_prompt(
                     thread_name, thread_desc, content,
                     result.get("url", ""), result.get("title", ""),
+                    prompt_memory,
                 ),
             )
         except Exception:

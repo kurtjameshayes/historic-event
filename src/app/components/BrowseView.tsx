@@ -1,11 +1,10 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useCallback } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   ChevronRight,
   Layers,
   FolderOpen,
   Calendar,
-  ArrowLeft,
   Hash,
 } from 'lucide-react';
 import { DAGData, EventNode, Subtopic, Thread } from '../types';
@@ -15,11 +14,6 @@ interface BrowseViewProps {
   data: DAGData;
   onNodeClick: (node: EventNode) => void;
 }
-
-type BrowseNav =
-  | { level: 'threads' }
-  | { level: 'subtopics'; threadId: string }
-  | { level: 'events'; threadId: string; subtopicId: string };
 
 function getThreadStats(thread: Thread, data: DAGData) {
   const events = data.events.filter(e => e.thread_id === thread.id);
@@ -35,10 +29,12 @@ function getThreadStats(thread: Thread, data: DAGData) {
 function ThreadCard({
   thread,
   stats,
+  expanded,
   onClick,
 }: {
   thread: Thread;
   stats: { eventCount: number; subtopicCount: number; dateRange: string };
+  expanded: boolean;
   onClick: () => void;
 }) {
   return (
@@ -74,7 +70,9 @@ function ThreadCard({
             )}
           </div>
         </div>
-        <ChevronRight className="w-5 h-5 text-slate-400 group-hover:text-indigo-500 transition-colors flex-shrink-0 mt-1" />
+        <ChevronRight
+          className={`w-5 h-5 text-slate-400 group-hover:text-indigo-500 transition-all duration-200 flex-shrink-0 mt-1 ${expanded ? 'rotate-90' : ''}`}
+        />
       </div>
     </button>
   );
@@ -83,10 +81,12 @@ function ThreadCard({
 function SubtopicCard({
   subtopic,
   eventCount,
+  expanded,
   onClick,
 }: {
   subtopic: Subtopic;
   eventCount: number;
+  expanded: boolean;
   onClick: () => void;
 }) {
   const dateLabel =
@@ -127,7 +127,9 @@ function SubtopicCard({
             )}
           </div>
         </div>
-        <ChevronRight className="w-5 h-5 text-slate-400 group-hover:text-indigo-500 transition-colors flex-shrink-0 mt-0.5" />
+        <ChevronRight
+          className={`w-5 h-5 text-slate-400 group-hover:text-indigo-500 transition-all duration-200 flex-shrink-0 mt-0.5 ${expanded ? 'rotate-90' : ''}`}
+        />
       </div>
     </button>
   );
@@ -160,102 +162,38 @@ function EventCard({
             {event.description}
           </p>
         </div>
-        <ChevronRight className="w-4 h-4 text-slate-300 group-hover:text-indigo-500 transition-colors flex-shrink-0 mt-0.5" />
       </div>
     </button>
   );
 }
 
-function BreadcrumbNav({
-  nav,
-  data,
-  onNavigate,
-}: {
-  nav: BrowseNav;
-  data: DAGData;
-  onNavigate: (nav: BrowseNav) => void;
-}) {
-  const thread =
-    nav.level !== 'threads'
-      ? data.threads.find(t => t.id === nav.threadId)
-      : null;
-  const subtopic =
-    nav.level === 'events'
-      ? data.subtopics.find(s => s.id === nav.subtopicId)
-      : null;
-
-  return (
-    <nav className="flex items-center gap-1.5 text-sm mb-4">
-      <button
-        onClick={() => onNavigate({ level: 'threads' })}
-        className={`font-medium transition-colors ${
-          nav.level === 'threads'
-            ? 'text-slate-900'
-            : 'text-slate-500 hover:text-indigo-600'
-        }`}
-      >
-        All Topics
-      </button>
-      {thread && (
-        <>
-          <ChevronRight className="w-3.5 h-3.5 text-slate-400" />
-          <button
-            onClick={() =>
-              onNavigate({ level: 'subtopics', threadId: thread.id })
-            }
-            className={`font-medium transition-colors truncate max-w-[200px] ${
-              nav.level === 'subtopics'
-                ? 'text-slate-900'
-                : 'text-slate-500 hover:text-indigo-600'
-            }`}
-          >
-            {thread.name}
-          </button>
-        </>
-      )}
-      {subtopic && (
-        <>
-          <ChevronRight className="w-3.5 h-3.5 text-slate-400" />
-          <span className="font-medium text-slate-900 truncate max-w-[200px]">
-            {subtopic.name}
-          </span>
-        </>
-      )}
-    </nav>
-  );
-}
-
 export function BrowseView({ data, onNodeClick }: BrowseViewProps) {
-  // #region agent log
-  React.useEffect(() => {
-    const threadIds = data.threads.map(t => t.id);
-    const eventThreadIds = [...new Set(data.events.map(e => e.thread_id))];
-    const matchCounts = data.threads.map(t => ({
-      threadId: t.id,
-      threadName: t.name,
-      matchingEvents: data.events.filter(e => e.thread_id === t.id).length,
-      matchingSubtopics: data.subtopics.filter(s => s.thread_id === t.id).length,
-    }));
-    fetch('http://127.0.0.1:7757/ingest/4ab05906-ade6-4987-86ba-70feade53d4d',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'4e9b6d'},body:JSON.stringify({sessionId:'4e9b6d',location:'BrowseView.tsx:mount',message:'BrowseView data',data:{totalEvents:data.events.length,totalSubtopics:data.subtopics.length,totalThreads:data.threads.length,threadIds,eventThreadIds,matchCounts,sampleEvent:data.events[0]||null},timestamp:Date.now()})}).catch(()=>{});
-  }, [data]);
-  // #endregion
-  const [nav, setNav] = useState<BrowseNav>({ level: 'threads' });
+  const [expandedThreads, setExpandedThreads] = useState<Set<string>>(new Set());
+  const [expandedSubtopics, setExpandedSubtopics] = useState<Set<string>>(new Set());
+
+  const toggleThread = useCallback((id: string) => {
+    setExpandedThreads(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
+
+  const toggleSubtopic = useCallback((id: string) => {
+    setExpandedSubtopics(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
 
   const eventsById = useMemo(() => {
     const map = new Map<string, EventNode>();
-    for (const ev of data.events) {
-      map.set(ev.id, ev);
-    }
+    for (const ev of data.events) map.set(ev.id, ev);
     return map;
   }, [data.events]);
-
-  const goBack = () => {
-    if (nav.level === 'events') {
-      setNav({ level: 'subtopics', threadId: nav.threadId });
-    } else if (nav.level === 'subtopics') {
-      setNav({ level: 'threads' });
-    }
-  };
 
   const sortedThreads = useMemo(() => {
     const minTimestamp = new Map<string, number>();
@@ -270,132 +208,113 @@ export function BrowseView({ data, onNodeClick }: BrowseViewProps) {
     );
   }, [data.threads, data.events]);
 
-  const renderThreads = () => (
-    <div className="space-y-3">
-      {sortedThreads.map(thread => (
-        <ThreadCard
-          key={thread.id}
-          thread={thread}
-          stats={getThreadStats(thread, data)}
-          onClick={() => setNav({ level: 'subtopics', threadId: thread.id })}
-        />
-      ))}
-    </div>
-  );
-
-  const renderSubtopics = (threadId: string) => {
-    const subtopics = data.subtopics
-      .filter(s => s.thread_id === threadId)
-      .sort((a, b) => a.order - b.order);
-
-    if (subtopics.length === 0) {
-      const threadEvents = data.events
-        .filter(e => e.thread_id === threadId)
-        .sort((a, b) => a.timestamp - b.timestamp);
-      return (
-        <div className="space-y-2">
-          {threadEvents.map(ev => (
-            <EventCard
-              key={ev.id}
-              event={ev}
-              onClick={() => onNodeClick(ev)}
-            />
-          ))}
-        </div>
-      );
+  const subtopicsByThread = useMemo(() => {
+    const map = new Map<string, Subtopic[]>();
+    for (const st of data.subtopics) {
+      const list = map.get(st.thread_id) ?? [];
+      list.push(st);
+      map.set(st.thread_id, list);
     }
-
-    return (
-      <div className="space-y-3">
-        {subtopics.map(subtopic => {
-          const eventCount = subtopic.event_ids.filter(id =>
-            eventsById.has(id),
-          ).length;
-          return (
-            <SubtopicCard
-              key={subtopic.id}
-              subtopic={subtopic}
-              eventCount={eventCount}
-              onClick={() =>
-                setNav({
-                  level: 'events',
-                  threadId,
-                  subtopicId: subtopic.id,
-                })
-              }
-            />
-          );
-        })}
-      </div>
-    );
-  };
-
-  const renderEvents = (subtopicId: string) => {
-    const subtopic = data.subtopics.find(s => s.id === subtopicId);
-    if (!subtopic) return null;
-
-    const events = subtopic.event_ids
-      .map(id => eventsById.get(id))
-      .filter((e): e is EventNode => e !== undefined)
-      .sort((a, b) => a.timestamp - b.timestamp);
-
-    return (
-      <div className="space-y-2">
-        {events.map(ev => (
-          <EventCard key={ev.id} event={ev} onClick={() => onNodeClick(ev)} />
-        ))}
-      </div>
-    );
-  };
-
-  const levelTitle = () => {
-    if (nav.level === 'threads') return 'Causal Threads';
-    if (nav.level === 'subtopics') {
-      const thread = data.threads.find(t => t.id === nav.threadId);
-      return thread?.name ?? 'Subtopics';
-    }
-    const subtopic = data.subtopics.find(s => s.id === nav.subtopicId);
-    return subtopic?.name ?? 'Events';
-  };
+    for (const list of map.values()) list.sort((a, b) => a.order - b.order);
+    return map;
+  }, [data.subtopics]);
 
   return (
     <div className="h-full flex flex-col bg-slate-50 rounded-2xl border border-slate-200 overflow-hidden">
       <div className="flex-none px-5 pt-4 pb-2">
-        <BreadcrumbNav nav={nav} data={data} onNavigate={setNav} />
-        <div className="flex items-center gap-3">
-          {nav.level !== 'threads' && (
-            <button
-              onClick={goBack}
-              className="p-1.5 rounded-lg hover:bg-slate-200 text-slate-500 transition-colors"
-            >
-              <ArrowLeft className="w-4 h-4" />
-            </button>
-          )}
-          <h2 className="text-xl font-bold text-slate-900">{levelTitle()}</h2>
-        </div>
+        <h2 className="text-xl font-bold text-slate-900">Causal Threads</h2>
       </div>
 
       <ScrollArea className="flex-1">
-        <div className="px-5 pb-5 pt-2">
-          <AnimatePresence mode="wait">
-            <motion.div
-              key={
-                nav.level === 'threads'
-                  ? 'threads'
-                  : nav.level === 'subtopics'
-                    ? `st-${nav.threadId}`
-                    : `ev-${nav.subtopicId}`
-              }
-              initial={{ opacity: 0, x: 20 }}
-              animate={{ opacity: 1, x: 0 }}
-              exit={{ opacity: 0, x: -20 }}
-              transition={{ duration: 0.15 }}
-            >
-              {nav.level === 'threads' && renderThreads()}
-              {nav.level === 'subtopics' && renderSubtopics(nav.threadId)}
-              {nav.level === 'events' && renderEvents(nav.subtopicId)}
-            </motion.div>
-          </AnimatePresence>
+        <div className="px-5 pb-5 pt-2 space-y-3">
+          {sortedThreads.map(thread => {
+            const threadExpanded = expandedThreads.has(thread.id);
+            const subtopics = subtopicsByThread.get(thread.id) ?? [];
+            const hasSubtopics = subtopics.length > 0;
+
+            const threadEvents = !hasSubtopics
+              ? data.events
+                  .filter(e => e.thread_id === thread.id)
+                  .sort((a, b) => a.timestamp - b.timestamp)
+              : [];
+
+            return (
+              <div key={thread.id}>
+                <ThreadCard
+                  thread={thread}
+                  stats={getThreadStats(thread, data)}
+                  expanded={threadExpanded}
+                  onClick={() => toggleThread(thread.id)}
+                />
+
+                <AnimatePresence initial={false}>
+                  {threadExpanded && (
+                    <motion.div
+                      key={`children-${thread.id}`}
+                      initial={{ height: 0, opacity: 0 }}
+                      animate={{ height: 'auto', opacity: 1 }}
+                      exit={{ height: 0, opacity: 0 }}
+                      transition={{ duration: 0.2 }}
+                      className="overflow-hidden"
+                    >
+                      <div className="pl-6 pt-2 space-y-2">
+                        {hasSubtopics
+                          ? subtopics.map(subtopic => {
+                              const stExpanded = expandedSubtopics.has(subtopic.id);
+                              const eventCount = subtopic.event_ids.filter(id => eventsById.has(id)).length;
+
+                              return (
+                                <div key={subtopic.id}>
+                                  <SubtopicCard
+                                    subtopic={subtopic}
+                                    eventCount={eventCount}
+                                    expanded={stExpanded}
+                                    onClick={() => toggleSubtopic(subtopic.id)}
+                                  />
+
+                                  <AnimatePresence initial={false}>
+                                    {stExpanded && (
+                                      <motion.div
+                                        key={`events-${subtopic.id}`}
+                                        initial={{ height: 0, opacity: 0 }}
+                                        animate={{ height: 'auto', opacity: 1 }}
+                                        exit={{ height: 0, opacity: 0 }}
+                                        transition={{ duration: 0.2 }}
+                                        className="overflow-hidden"
+                                      >
+                                        <div className="pl-6 pt-2 space-y-2">
+                                          {subtopic.event_ids
+                                            .map(id => eventsById.get(id))
+                                            .filter((e): e is EventNode => e !== undefined)
+                                            .sort((a, b) => a.timestamp - b.timestamp)
+                                            .map(ev => (
+                                              <EventCard
+                                                key={ev.id}
+                                                event={ev}
+                                                onClick={() => onNodeClick(ev)}
+                                              />
+                                            ))}
+                                        </div>
+                                      </motion.div>
+                                    )}
+                                  </AnimatePresence>
+                                </div>
+                              );
+                            })
+                          : threadEvents.map(ev => (
+                              <EventCard
+                                key={ev.id}
+                                event={ev}
+                                onClick={() => onNodeClick(ev)}
+                              />
+                            ))}
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </div>
+            );
+          })}
         </div>
       </ScrollArea>
     </div>

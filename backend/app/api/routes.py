@@ -17,6 +17,7 @@ from ..models import (
     get_edges,
     update_session,
     clear_session_data,
+    increment_session_critic_run_seq,
 )
 from ..orchestrator import start_orchestrator, register_sse_queue, unregister_sse_queue
 
@@ -47,7 +48,7 @@ def create_new_session():
 
     config = {
         "max_depth": body.get("max_depth", 1),
-        "max_cycles": body.get("max_cycles", 1),
+        "max_cycles": body.get("max_cycles", 2),
         "max_sources_per_thread": body.get("max_sources_per_thread", 3),
         "max_threads": body.get("max_threads", 5),
         "coverage_threshold": Config.DEFAULT_COVERAGE_THRESHOLD,
@@ -209,13 +210,16 @@ def restart_investigation(session_id: str):
         return jsonify({"error": "session already complete"}), 409
 
     clear_session_data(db, session_id)
+    next_run_seq = increment_session_critic_run_seq(db, session_id)
     update_session(db, session_id, {
         "status": "PLAN",
         "current_cycle": 0,
+        "critic_run_seq": next_run_seq,
         "causal_threads": [],
         "narrative": None,
         "subtopics": [],
         "reasoning_trace": [],
+        "last_critique_id": None,
         "completed_at": None,
     })
 

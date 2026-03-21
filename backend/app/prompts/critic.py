@@ -58,13 +58,22 @@ Be specific in identifying gaps. For each gap, suggest concrete search queries.
 Return ONLY the JSON object, no markdown fences or extra text."""
 
 
-def build_critic_prompt(query: str, dag_json: str) -> str:
-    return f"""Evaluate this causal timeline for completeness, accuracy, and balance.
+def build_critic_prompt(query: str, dag_json: str, prompt_memory: list[str] | None = None) -> str:
+    prompt = """Evaluate this causal timeline for completeness, accuracy, and balance.
 
-ORIGINAL USER QUESTION: "{query}"
+"""
+
+    if prompt_memory:
+        prompt += "--- REUSABLE PROMPT GUIDANCE ---\n"
+        for item in prompt_memory[:8]:
+            prompt += f"  - {item}\n"
+        prompt += "\n"
+
+    prompt += f"""ORIGINAL USER QUESTION: "{query}"
 
 --- CURRENT CAUSAL DAG (JSON) ---
 {dag_json}
 --- END DAG ---
 
 Assess the timeline against all seven evaluation criteria. Be thorough and specific."""
+    return prompt

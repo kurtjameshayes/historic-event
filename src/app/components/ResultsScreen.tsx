@@ -13,6 +13,8 @@ interface ResultsScreenProps {
 
 type Tab = 'browse' | 'timeline' | 'narrative';
 
+const SHOW_TIMELINE_TAB = false;
+
 export function ResultsScreen({ data, onReset }: ResultsScreenProps) {
   const [activeTab, setActiveTab] = useState<Tab>('browse');
   const [selectedNode, setSelectedNode] = useState<EventNode | null>(null);
@@ -42,14 +44,16 @@ export function ResultsScreen({ data, onReset }: ResultsScreenProps) {
             >
               <Layers className="w-4 h-4" /> Browse
             </button>
-            <button
-              onClick={() => setActiveTab('timeline')}
-              className={`flex items-center gap-2 px-4 py-1.5 rounded-md transition-colors ${
-                activeTab === 'timeline' ? 'bg-indigo-50 text-indigo-700 shadow-sm' : 'text-slate-600 hover:text-slate-900'
-              }`}
-            >
-              <Network className="w-4 h-4" /> Timeline (DAG)
-            </button>
+            {SHOW_TIMELINE_TAB && (
+              <button
+                onClick={() => setActiveTab('timeline')}
+                className={`flex items-center gap-2 px-4 py-1.5 rounded-md transition-colors ${
+                  activeTab === 'timeline' ? 'bg-indigo-50 text-indigo-700 shadow-sm' : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                <Network className="w-4 h-4" /> Timeline (DAG)
+              </button>
+            )}
             <button
               onClick={() => setActiveTab('narrative')}
               className={`flex items-center gap-2 px-4 py-1.5 rounded-md transition-colors ${
@@ -87,7 +91,7 @@ export function ResultsScreen({ data, onReset }: ResultsScreenProps) {
                 />
               </motion.div>
             )}
-            {activeTab === 'timeline' && (
+            {SHOW_TIMELINE_TAB && activeTab === 'timeline' && (
               <motion.div 
                 key="timeline" 
                 initial={{ opacity: 0 }} 

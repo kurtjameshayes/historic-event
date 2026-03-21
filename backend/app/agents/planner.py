@@ -17,9 +17,13 @@ THREAD_COLORS = [
 ]
 
 
-def run_planner(query: str, critique: dict | None = None) -> dict:
+def run_planner(
+    query: str,
+    critique: dict | None = None,
+    prompt_memory: list[str] | None = None,
+) -> dict:
     """Decompose a query into causal threads. Returns planner output dict."""
-    user_prompt = build_planner_prompt(query, critique)
+    user_prompt = build_planner_prompt(query, critique, prompt_memory)
     result = call_llm(PLANNER_SYSTEM, user_prompt)
 
     for i, thread in enumerate(result.get("causal_threads", [])):
