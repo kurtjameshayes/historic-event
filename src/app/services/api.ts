@@ -70,3 +70,56 @@ export function listSessions(search?: string): Promise<SessionSummary[]> {
 export function restartSession(sessionId: string): Promise<{ status: string; session_id: string }> {
   return request(`/api/sessions/${sessionId}/restart`, { method: 'POST' });
 }
+
+// --------------- Comparisons ---------------
+
+export interface CreateComparisonResponse {
+  comparison_id: string;
+  session_id_a: string;
+  session_id_b: string;
+}
+
+export interface ComparisonConfig {
+  max_depth: number;
+  max_cycles: number;
+  max_sources_per_thread: number;
+  max_threads?: number;
+}
+
+export function createComparison(
+  query_a: string,
+  query_b: string,
+  config: ComparisonConfig,
+): Promise<CreateComparisonResponse> {
+  return request('/api/comparisons', {
+    method: 'POST',
+    body: JSON.stringify({ query_a, query_b, ...config }),
+  });
+}
+
+export function getComparison(comparisonId: string) {
+  return request<any>(`/api/comparisons/${comparisonId}`);
+}
+
+export function listComparisons(): Promise<any[]> {
+  return request<any[]>('/api/comparisons');
+}
+
+export function addComparisonSuggestion(comparisonId: string, text: string) {
+  return request<{ status: string }>(`/api/comparisons/${comparisonId}/suggestions`, {
+    method: 'POST',
+    body: JSON.stringify({ text }),
+  });
+}
+
+export function addComparisonPromptChange(
+  comparisonId: string,
+  original: string,
+  revised: string,
+  reason: string,
+) {
+  return request<{ status: string }>(`/api/comparisons/${comparisonId}/prompt-changes`, {
+    method: 'POST',
+    body: JSON.stringify({ original, revised, reason }),
+  });
+}

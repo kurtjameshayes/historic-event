@@ -50,6 +50,9 @@ def ensure_indexes(db: Database):
         unique=True,
     )
     db.prompt_memory.create_index([("scope_key", ASCENDING), ("target", ASCENDING), ("updated_at", ASCENDING)])
+    db.comparisons.create_index([("session_id_a", ASCENDING)])
+    db.comparisons.create_index([("session_id_b", ASCENDING)])
+    db.comparisons.create_index([("created_at", ASCENDING)])
 
 
 def _oid(val) -> ObjectId:
@@ -61,7 +64,7 @@ def _serialize_doc(doc: dict | None) -> dict | None:
         return None
     doc = {**doc}
     doc["id"] = str(doc.pop("_id"))
-    for key in ("session_id", "from_event_id", "to_event_id"):
+    for key in ("session_id", "from_event_id", "to_event_id", "session_id_a", "session_id_b"):
         if key in doc and isinstance(doc[key], ObjectId):
             doc[key] = str(doc[key])
     return doc
@@ -317,4 +320,96 @@ def cache_search(db: Database, query_hash: str, query: str, results: list):
             "ttl_expires": datetime.now(timezone.utc) + timedelta(days=30),
         }},
         upsert=True,
+    )
+
+
+# --------------- Comparisons ---------------
+
+@_mongo_retry
+def create_comparison(
+    db: Database,
+    query_a: str,
+    query_b: str,
+    session_id_a: str,
+    session_id_b: str,
+) -> str:
+    now = datetime.now(timezone.utc)
+    result = db.comparisons.insert_one({
+        "session_id_a": _oid(session_id_a),
+        "session_id_b": _oid(session_id_b),
+        "query_a": query_a,
+        "query_b": query_b,
+        "status": "RESEARCHING",
+        "analysis": None,
+        "suggestions": [],
+        "prompt_changes": [],
+        "created_at": now,
+        "updated_at": now,
+        "completed_at": None,
+    })
+    return str(result.inserted_id)
+
+
+def get_comparison(db: Database, comparison_id: str) -> dict | None:
+    doc = db.comparisons.find_one({"_id": _oid(comparison_id)})
+    return _serialize_doc(doc)
+
+
+@_mongo_retry
+def update_comparison(db: Database, comparison_id: str, updates: dict):
+    updates["updated_at"] = datetime.now(timezone.utc)
+    db.comparisons.update_one({"_id": _oid(comparison_id)}, {"$set": updates})
+
+
+def list_comparisons(db: Database, limit: int = 50, skip: int = 0) -> list[dict]:
+    cursor = (
+        db.comparisons.find({}, {
+            "query_a": 1,
+            "query_b": 1,
+            "status": 1,
+            "session_id_a": 1,
+            "session_id_b": 1,
+            "created_at": 1,
+            "updated_at": 1,
+            "completed_at": 1,
+        })
+        .sort("created_at", -1)
+        .skip(skip)
+        .limit(limit)
+    )
+    return [_serialize_doc(doc) for doc in cursor]
+
+
+@_mongo_retry
+def add_comparison_suggestion(db: Database, comparison_id: str, text: str):
+    now = datetime.now(timezone.utc)
+    db.comparisons.update_one(
+        {"_id": _oid(comparison_id)},
+        {
+            "$push": {"suggestions": {"text": text, "created_at": now}},
+            "$set": {"updated_at": now},
+        },
+    )
+
+
+@_mongo_retry
+def add_comparison_prompt_change(
+    db: Database,
+    comparison_id: str,
+    original: str,
+    revised: str,
+    reason: str,
+):
+    now = datetime.now(timezone.utc)
+    db.comparisons.update_one(
+        {"_id": _oid(comparison_id)},
+        {
+            "$push": {"prompt_changes": {
+                "original": original,
+                "revised": revised,
+                "reason": reason,
+                "created_at": now,
+            }},
+            "$set": {"updated_at": now},
+        },
     )

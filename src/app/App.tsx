@@ -1,14 +1,17 @@
 import React, { useState, useCallback } from 'react';
-import { History, PlusCircle, Info } from 'lucide-react';
+import { History, PlusCircle, Info, GitCompareArrows } from 'lucide-react';
 import { InputScreen } from './components/InputScreen';
 import { StatusScreen } from './components/StatusScreen';
 import { ResultsScreen } from './components/ResultsScreen';
 import { HistoryScreen } from './components/HistoryScreen';
 import { AboutScreen } from './components/AboutScreen';
-import { createSession } from './services/api';
-import type { DAGData } from './types';
+import { CompareInputScreen } from './components/CompareInputScreen';
+import { CompareStatusScreen } from './components/CompareStatusScreen';
+import { CompareResultsScreen } from './components/CompareResultsScreen';
+import { createSession, createComparison } from './services/api';
+import type { DAGData, ComparisonData } from './types';
 
-type AppState = 'INPUT' | 'RESEARCHING' | 'RESULTS' | 'HISTORY' | 'ABOUT';
+type AppState = 'INPUT' | 'RESEARCHING' | 'RESULTS' | 'HISTORY' | 'ABOUT' | 'COMPARE_INPUT' | 'COMPARE_RESEARCHING' | 'COMPARE_RESULTS';
 
 export default function App() {
   const [appState, setAppState] = useState<AppState>('INPUT');
@@ -16,6 +19,14 @@ export default function App() {
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [dagData, setDagData] = useState<DAGData | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  const [comparisonId, setComparisonId] = useState<string | null>(null);
+  const [compareSessionIdA, setCompareSessionIdA] = useState<string | null>(null);
+  const [compareSessionIdB, setCompareSessionIdB] = useState<string | null>(null);
+  const [compareQueryA, setCompareQueryA] = useState('');
+  const [compareQueryB, setCompareQueryB] = useState('');
+  const [comparisonData, setComparisonData] = useState<ComparisonData | null>(null);
+  const [compareError, setCompareError] = useState<string | null>(null);
 
   const handleStartSearch = async (q: string, c: any) => {
     setQuery(q);
@@ -36,6 +47,42 @@ export default function App() {
     }
   };
 
+  const handleStartComparison = async (queryA: string, queryB: string, c: any) => {
+    setCompareQueryA(queryA);
+    setCompareQueryB(queryB);
+    setCompareError(null);
+
+    try {
+      const { comparison_id, session_id_a, session_id_b } = await createComparison(queryA, queryB, {
+        max_depth: c.depth,
+        max_cycles: c.cycles,
+        max_sources_per_thread: c.sourcesPerThread ?? 3,
+        max_threads: c.maxThreads ?? 5,
+      });
+      setComparisonId(comparison_id);
+      setCompareSessionIdA(session_id_a);
+      setCompareSessionIdB(session_id_b);
+      setAppState('COMPARE_RESEARCHING');
+    } catch (err: any) {
+      setCompareError(err.message || 'Failed to start comparison');
+    }
+  };
+
+  const handleComparisonComplete = useCallback((data: ComparisonData) => {
+    setComparisonData(data);
+    setAppState('COMPARE_RESULTS');
+  }, []);
+
+  const handleLoadComparison = useCallback((data: ComparisonData) => {
+    setComparisonData(data);
+    setComparisonId(data.id);
+    setCompareQueryA(data.query_a);
+    setCompareQueryB(data.query_b);
+    setCompareSessionIdA(data.session_id_a);
+    setCompareSessionIdB(data.session_id_b);
+    setAppState('COMPARE_RESULTS');
+  }, []);
+
   const handleResearchComplete = useCallback((data: DAGData) => {
     setDagData(data);
     setAppState('RESULTS');
@@ -47,6 +94,13 @@ export default function App() {
     setSessionId(null);
     setDagData(null);
     setError(null);
+    setComparisonId(null);
+    setCompareSessionIdA(null);
+    setCompareSessionIdB(null);
+    setCompareQueryA('');
+    setCompareQueryB('');
+    setComparisonData(null);
+    setCompareError(null);
   };
 
   const handleLoadResults = (_sessionId: string, data: DAGData) => {
@@ -82,6 +136,13 @@ export default function App() {
           >
             <PlusCircle className="w-3.5 h-3.5" />
             New Query
+          </button>
+          <button
+            onClick={() => { setCompareError(null); setAppState('COMPARE_INPUT'); }}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md transition-colors ${navActive('COMPARE_INPUT')}`}
+          >
+            <GitCompareArrows className="w-3.5 h-3.5" />
+            Compare
           </button>
           <button
             onClick={() => setAppState('HISTORY')}
@@ -121,10 +182,33 @@ export default function App() {
           <ResultsScreen data={dagData} onReset={handleReset} />
         )}
 
+        {appState === 'COMPARE_INPUT' && (
+          <CompareInputScreen
+            onSubmit={handleStartComparison}
+            error={compareError}
+          />
+        )}
+
+        {appState === 'COMPARE_RESEARCHING' && comparisonId && compareSessionIdA && compareSessionIdB && (
+          <CompareStatusScreen
+            comparisonId={comparisonId}
+            sessionIdA={compareSessionIdA}
+            sessionIdB={compareSessionIdB}
+            queryA={compareQueryA}
+            queryB={compareQueryB}
+            onComplete={handleComparisonComplete}
+          />
+        )}
+
+        {appState === 'COMPARE_RESULTS' && comparisonData && (
+          <CompareResultsScreen data={comparisonData} onReset={handleReset} />
+        )}
+
         {appState === 'HISTORY' && (
           <HistoryScreen
             onLoadResults={handleLoadResults}
             onResumeSession={handleResumeSession}
+            onLoadComparison={handleLoadComparison}
           />
         )}
 

@@ -1,1 +1,20 @@
 node_modules
+/.env
+/backend/.env.example
+/backend/tests/integration/__init__.py
+/backend/tests/unit/__init__.py
+/backend/tests/__init__.py
+/.cursor/causal_lines_src.zip
+/.cursor/code_review_prompt copy 2.md
+/.cursor/debug-4e9b6d.log
+/.cursor/debug-c4acc4.log
+/.cursor/debug-d518e0.log
+/.cursor/homepage_src.zip
+/.cursor/causal_lines_extracted/styles/index.css
+/dist/assets/index-CLUlo0fJ.js
+/src/app/components/__tests__/InputScreen.test.tsx
+/backend/pyproject.toml
+/.cursor/src.zip
+/src/app/services/__tests__/sse.test.ts
+/src/test-setup.ts
+/vitest.config.ts

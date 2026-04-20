@@ -63,19 +63,25 @@ export function InputScreen({ onSubmit, error, onAboutClick }: InputScreenProps)
 
           {/* Search Form */}
           <form onSubmit={handleSearch} className="bg-white/90 backdrop-blur p-2 rounded-2xl shadow-xl border-2 border-bronze-200/60 transition-all">
-            <div className="relative flex items-center">
-              <Search className="absolute left-5 text-manuscript-400 w-5 h-5" />
-              <input
-                type="text"
+            <div className="relative flex items-stretch gap-2 py-2 pl-14 pr-2">
+              <Search className="absolute left-5 top-1/2 -translate-y-1/2 text-manuscript-400 w-5 h-5 pointer-events-none" />
+              <textarea
+                rows={2}
                 placeholder="Ask about a historical event..."
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
-                className="w-full pl-14 pr-28 py-4 text-lg bg-transparent border-none outline-none focus:ring-0 text-manuscript-900 placeholder:text-manuscript-400"
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    e.currentTarget.form?.requestSubmit();
+                  }
+                }}
+                className="flex-1 min-w-0 py-2 text-lg bg-transparent border-none outline-none focus:ring-0 text-manuscript-900 placeholder:text-manuscript-400 resize-none leading-normal"
               />
               <button
                 type="submit"
                 disabled={!query.trim()}
-                className="absolute right-2 px-5 py-2.5 bg-gradient-to-r from-bronze-600 to-bronze-500 hover:from-bronze-700 hover:to-bronze-600 disabled:from-bronze-300 disabled:to-bronze-200 text-parchment-50 font-medium rounded-xl flex items-center gap-2 transition-all"
+                className="shrink-0 self-center px-5 py-2.5 bg-gradient-to-r from-bronze-600 to-bronze-500 hover:from-bronze-700 hover:to-bronze-600 disabled:from-bronze-300 disabled:to-bronze-200 text-parchment-50 font-medium rounded-xl flex items-center gap-2 transition-all"
               >
                 <Sparkles className="w-4 h-4" />
                 Investigate
