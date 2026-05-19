@@ -31,29 +31,29 @@ describe('ResultsScreen', () => {
   const mockOnReset = vi.fn()
 
   it('renders the header with target event name', () => {
-    render(<ResultsScreen data={mockData} onReset={mockOnReset} />)
+    render(<ResultsScreen data={mockData} sessionId={null} onReset={mockOnReset} />)
     expect(screen.getByText('Fall of the Berlin Wall')).toBeInTheDocument()
   })
 
   it('shows analysis complete badge', () => {
-    render(<ResultsScreen data={mockData} onReset={mockOnReset} />)
+    render(<ResultsScreen data={mockData} sessionId={null} onReset={mockOnReset} />)
     expect(screen.getByText('Analysis Complete')).toBeInTheDocument()
   })
 
   it('renders browse view by default', () => {
-    render(<ResultsScreen data={mockData} onReset={mockOnReset} />)
+    render(<ResultsScreen data={mockData} sessionId={null} onReset={mockOnReset} />)
     expect(screen.getByTestId('browse-view')).toBeInTheDocument()
   })
 
   it('has tab buttons for browse and narrative', () => {
-    render(<ResultsScreen data={mockData} onReset={mockOnReset} />)
+    render(<ResultsScreen data={mockData} sessionId={null} onReset={mockOnReset} />)
     const header = screen.getByRole('banner')
     expect(within(header).getByText('Browse')).toBeInTheDocument()
     expect(within(header).getByText('Narrative')).toBeInTheDocument()
   })
 
   it('switches to narrative tab', async () => {
-    render(<ResultsScreen data={mockData} onReset={mockOnReset} />)
+    render(<ResultsScreen data={mockData} sessionId={null} onReset={mockOnReset} />)
     const header = screen.getByRole('banner')
     await userEvent.click(within(header).getByText('Narrative'))
     await waitFor(() => {
@@ -62,7 +62,7 @@ describe('ResultsScreen', () => {
   })
 
   it('calls onReset when New Query button is clicked', async () => {
-    render(<ResultsScreen data={mockData} onReset={mockOnReset} />)
+    render(<ResultsScreen data={mockData} sessionId={null} onReset={mockOnReset} />)
     const header = screen.getByRole('banner')
     await userEvent.click(within(header).getByText('New Query'))
     expect(mockOnReset).toHaveBeenCalled()

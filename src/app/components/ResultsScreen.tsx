@@ -1,10 +1,11 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Network, AlignLeft, Layers, X, ExternalLink, ShieldCheck, CornerDownRight, Zap } from 'lucide-react';
+import { Network, AlignLeft, Layers, X, ExternalLink, ShieldCheck, CornerDownRight, Zap, Loader2 } from 'lucide-react';
 import { DAGData, EventNode, CausalEdge } from '../types';
 import { TimelineView } from './TimelineView';
 import { NarrativeView } from './NarrativeView';
 import { BrowseView } from './BrowseView';
+import { getEventDetail } from '../services/api';
 
 function isSafeUrl(url: string | undefined): boolean {
   if (!url) return false;
@@ -18,6 +19,7 @@ function isSafeUrl(url: string | undefined): boolean {
 
 interface ResultsScreenProps {
   data: DAGData;
+  sessionId: string | null;
   onReset: () => void;
 }
 
@@ -25,12 +27,105 @@ type Tab = 'browse' | 'timeline' | 'narrative';
 
 const SHOW_TIMELINE_TAB = false;
 
-export function ResultsScreen({ data, onReset }: ResultsScreenProps) {
+export function ResultsScreen({ data, sessionId, onReset }: ResultsScreenProps) {
   const [activeTab, setActiveTab] = useState<Tab>('browse');
   const [selectedNode, setSelectedNode] = useState<EventNode | null>(null);
   const [selectedEdge, setSelectedEdge] = useState<CausalEdge | null>(null);
+  const [detailCache, setDetailCache] = useState<Record<string, string>>({});
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [detailError, setDetailError] = useState<string | null>(null);
 
   const getThreadColor = (id: string) => data.threads.find(t => t.id === id)?.color || 'text-slate-500';
+
+  useEffect(() => {
+    if (!selectedNode || !sessionId) {
+      setDetailLoading(false);
+      setDetailError(null);
+      return;
+    }
+
+    const eventId = selectedNode.id;
+    const cached = detailCache[eventId] ?? (selectedNode.detail || '').trim();
+    if (cached) {
+      setDetailLoading(false);
+      setDetailError(null);
+      return;
+    }
+
+    let cancelled = false;
+    setDetailLoading(true);
+    setDetailError(null);
+
+    getEventDetail(sessionId, eventId)
+      .then((res) => {
+        if (cancelled) return;
+        setDetailCache((prev) => ({ ...prev, [eventId]: res.detail }));
+        setDetailLoading(false);
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        setDetailError(err?.message || 'Failed to load detailed analysis.');
+        setDetailLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedNode, sessionId, detailCache]);
+
+  const renderEventDetail = (node: EventNode) => {
+    const cached = detailCache[node.id] ?? (node.detail || '').trim();
+    const paragraphs = cached
+      ? cached.split(/\n{2,}/).map(p => p.trim()).filter(Boolean)
+      : [];
+
+    if (detailLoading && !cached) {
+      return (
+        <div className="space-y-3">
+          <div className="flex items-center gap-2 text-xs font-medium text-slate-500">
+            <Loader2 className="w-3.5 h-3.5 animate-spin text-indigo-500" />
+            Composing detailed historical analysis…
+          </div>
+          <div className="space-y-2">
+            {[...Array(5)].map((_, i) => (
+              <div key={i} className="space-y-1.5">
+                <div className="h-3 bg-slate-100 rounded animate-pulse w-full" />
+                <div className="h-3 bg-slate-100 rounded animate-pulse w-[95%]" />
+                <div className="h-3 bg-slate-100 rounded animate-pulse w-[88%]" />
+                <div className="h-3 bg-slate-100 rounded animate-pulse w-[60%]" />
+              </div>
+            ))}
+          </div>
+          <p className="text-xs text-slate-700 leading-relaxed pt-2 border-t border-slate-100">
+            {node.description}
+          </p>
+        </div>
+      );
+    }
+
+    if (detailError && !cached) {
+      return (
+        <div className="space-y-3">
+          <p className="text-sm text-slate-700 leading-relaxed">{node.description}</p>
+          <p className="text-xs text-rose-600 bg-rose-50 border border-rose-100 rounded-md px-3 py-2">
+            {detailError}
+          </p>
+        </div>
+      );
+    }
+
+    if (paragraphs.length === 0) {
+      return <p className="text-sm text-slate-700 leading-relaxed">{node.description}</p>;
+    }
+
+    return (
+      <div className="space-y-3 text-sm text-slate-700 leading-relaxed">
+        {paragraphs.map((p, i) => (
+          <p key={i}>{p}</p>
+        ))}
+      </div>
+    );
+  };
 
   return (
     <div className="flex flex-col h-full bg-white font-sans overflow-hidden">
@@ -85,7 +180,11 @@ export function ResultsScreen({ data, onReset }: ResultsScreenProps) {
 
       {/* Main Content Area */}
       <div className="flex-1 flex overflow-hidden relative">
-        <main className={`flex-1 transition-all duration-300 ${selectedNode || selectedEdge ? 'mr-96' : ''}`}>
+        <main
+          className={`flex-1 transition-all duration-300 ${
+            selectedNode ? 'mr-[30rem]' : selectedEdge ? 'mr-96' : ''
+          }`}
+        >
           <AnimatePresence mode="wait">
             {activeTab === 'browse' && (
               <motion.div
@@ -138,7 +237,9 @@ export function ResultsScreen({ data, onReset }: ResultsScreenProps) {
               animate={{ x: 0, opacity: 1 }}
               exit={{ x: 400, opacity: 0 }}
               transition={{ type: "spring", damping: 25, stiffness: 200 }}
-              className="absolute right-0 top-0 bottom-0 w-96 bg-white border-l border-slate-200 shadow-2xl flex flex-col z-20"
+              className={`absolute right-0 top-0 bottom-0 ${
+                selectedNode ? 'w-[30rem]' : 'w-96'
+              } bg-white border-l border-slate-200 shadow-2xl flex flex-col z-20`}
             >
               <div className="flex items-center justify-between p-4 border-b border-slate-100 bg-slate-50/50">
                 <h3 className="font-semibold text-slate-800 flex items-center gap-2">
@@ -161,7 +262,7 @@ export function ResultsScreen({ data, onReset }: ResultsScreenProps) {
                       </span>
                       <h2 className="text-xl font-bold text-slate-900 mb-2">{selectedNode.title}</h2>
                       <div className="text-sm font-medium text-slate-500 mb-4">{selectedNode.date}</div>
-                      <p className="text-slate-700 text-sm leading-relaxed">{selectedNode.description}</p>
+                      {renderEventDetail(selectedNode)}
                     </div>
 
                     <div className="border-t border-slate-100 pt-6">

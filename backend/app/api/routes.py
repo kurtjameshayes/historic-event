@@ -16,6 +16,8 @@ from ..models import (
     list_sessions,
     get_events,
     get_edges,
+    get_event,
+    update_event_detail,
     update_session,
     clear_session_data,
     increment_session_critic_run_seq,
@@ -37,9 +39,28 @@ logger = logging.getLogger(__name__)
 api_bp = Blueprint("api", __name__)
 
 MAX_QUERY_LENGTH = 500
+MAX_ATTACHMENT_CONTEXT_LENGTH = 20_000
 MAX_CYCLES_LIMIT = 10
 MAX_THREADS_LIMIT = 10
 MAX_SOURCES_LIMIT = 10
+
+ALLOWED_MIME_TYPES = {
+    "application/pdf": ("pdf", "parse_pdf"),
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document": ("docx", "parse_docx"),
+    "image/jpeg": ("image", "parse_image"),
+    "image/png": ("image", "parse_image"),
+    "image/gif": ("image", "parse_image"),
+    "image/webp": ("image", "parse_image"),
+}
+EXTENSION_TO_MIME = {
+    ".pdf": "application/pdf",
+    ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".png": "image/png",
+    ".gif": "image/gif",
+    ".webp": "image/webp",
+}
 
 
 @api_bp.errorhandler(InvalidId)
@@ -60,6 +81,67 @@ def handle_runtime_error(e):
     raise e
 
 
+@api_bp.route("/parse-attachment", methods=["POST"])
+def parse_attachment():
+    """Parse a file or URL and return extracted text.
+
+    Accepts either:
+      - multipart/form-data with a `file` field (PDF, DOCX, or image)
+      - application/json with a `url` field
+    Returns: { text, name, type }
+    """
+    from ..services.attachment_parser import parse_pdf, parse_docx, parse_image, crawl_url
+    import os
+
+    if request.content_type and request.content_type.startswith("multipart/form-data"):
+        if "file" not in request.files:
+            return jsonify({"error": "No file field in request"}), 400
+        f = request.files["file"]
+        filename = f.filename or "attachment"
+        ext = os.path.splitext(filename)[1].lower()
+
+        mime = f.content_type or ""
+        if not mime or mime == "application/octet-stream":
+            mime = EXTENSION_TO_MIME.get(ext, "")
+
+        if mime not in ALLOWED_MIME_TYPES:
+            return jsonify({"error": f"Unsupported file type: {mime or ext!r}. Allowed: PDF, DOCX, JPEG, PNG, GIF, WebP"}), 415
+
+        file_bytes = f.read()
+        if len(file_bytes) > 20 * 1024 * 1024:
+            return jsonify({"error": "File too large. Maximum size is 20 MB"}), 413
+
+        attachment_type, _ = ALLOWED_MIME_TYPES[mime]
+        try:
+            if attachment_type == "pdf":
+                text = parse_pdf(file_bytes)
+            elif attachment_type == "docx":
+                text = parse_docx(file_bytes)
+            else:
+                text = parse_image(file_bytes, mime)
+        except Exception as e:
+            logger.exception("Error parsing attachment %s", filename)
+            return jsonify({"error": f"Failed to parse file: {e}"}), 500
+
+        return jsonify({"text": text, "name": filename, "type": attachment_type})
+
+    if request.is_json:
+        body = request.get_json()
+        url = (body or {}).get("url", "").strip()
+        if not url:
+            return jsonify({"error": "url is required"}), 400
+        try:
+            text = crawl_url(url)
+        except ValueError as e:
+            return jsonify({"error": str(e)}), 400
+        except Exception as e:
+            logger.exception("Error crawling URL %s", url)
+            return jsonify({"error": f"Failed to crawl URL: {e}"}), 500
+        return jsonify({"text": text, "name": url, "type": "url"})
+
+    return jsonify({"error": "Request must be multipart/form-data (file) or application/json (url)"}), 415
+
+
 @api_bp.route("/sessions", methods=["POST"])
 def create_new_session():
     if not request.is_json:
@@ -73,6 +155,14 @@ def create_new_session():
     if len(query) > MAX_QUERY_LENGTH:
         return jsonify({"error": f"query must be at most {MAX_QUERY_LENGTH} characters"}), 400
 
+    attachment_context = (body.get("attachment_context") or "").strip()
+    if len(attachment_context) > MAX_ATTACHMENT_CONTEXT_LENGTH:
+        return jsonify({"error": f"attachment_context must be at most {MAX_ATTACHMENT_CONTEXT_LENGTH} characters"}), 400
+
+    enriched_query = query
+    if attachment_context:
+        enriched_query = f"{query}\n\n--- Attached Context ---\n{attachment_context}"
+
     config = {
         "max_depth": min(int(body.get("max_depth", 1)), MAX_CYCLES_LIMIT),
         "max_cycles": min(int(body.get("max_cycles", 2)), MAX_CYCLES_LIMIT),
@@ -84,11 +174,11 @@ def create_new_session():
 
     db = get_db()
     try:
-        session_id, query_id = create_session(db, query, config)
+        session_id, query_id = create_session(db, enriched_query, config)
     except PyMongoError as e:
         return jsonify({"error": "Database unavailable. Please configure MONGODB_URI in backend/.env with a valid MongoDB connection string."}), 503
 
-    start_orchestrator(session_id, query, config, db)
+    start_orchestrator(session_id, enriched_query, config, db)
 
     return jsonify({"session_id": session_id, "query_id": query_id}), 201
 
@@ -209,6 +299,79 @@ def get_timeline(session_id: str):
     })
 
 
+@api_bp.route("/sessions/<session_id>/events/<event_id>/detail", methods=["GET"])
+def get_event_detail(session_id: str, event_id: str):
+    """Return an in-depth multi-paragraph deep-dive for a single event.
+
+    Generated lazily via the elaborator agent and cached on the event document
+    so subsequent requests return instantly.
+    """
+    db = get_db()
+    session = get_session(db, session_id)
+    if not session:
+        return jsonify({"error": "session not found"}), 404
+
+    event = get_event(db, event_id)
+    if not event or str(event.get("session_id")) != session_id:
+        return jsonify({"error": "event not found"}), 404
+
+    cached = (event.get("detail") or "").strip()
+    if cached and not request.args.get("regenerate"):
+        return jsonify({"detail": cached, "cached": True})
+
+    from ..agents.elaborator import elaborate_event
+
+    threads = session.get("causal_threads", []) or []
+    subtopics = session.get("subtopics", []) or []
+    thread = next((t for t in threads if t.get("id") == event.get("thread_id")), None)
+
+    subtopic = None
+    sibling_events: list[dict] = []
+    event_subtopic_id = event.get("subtopic_id")
+    if event_subtopic_id:
+        subtopic = next((s for s in subtopics if s.get("id") == event_subtopic_id), None)
+
+    if subtopic is None:
+        for s in subtopics:
+            if event_id in (s.get("event_ids") or []):
+                subtopic = s
+                break
+
+    if subtopic:
+        sibling_ids = set(subtopic.get("event_ids") or [])
+        if sibling_ids:
+            all_events = get_events(db, session_id)
+            sibling_events = [
+                e for e in all_events
+                if e.get("id") in sibling_ids and e.get("id") != event_id
+            ]
+            sibling_events.sort(key=lambda e: e.get("timestamp", 0))
+
+    query = session.get("query", "")
+
+    try:
+        detail = elaborate_event(
+            query=query,
+            event=event,
+            thread=thread,
+            subtopic=subtopic,
+            sibling_events=sibling_events,
+        )
+    except Exception as e:
+        logger.exception("Failed to elaborate event %s", event_id)
+        return jsonify({"error": "Failed to generate event detail. Please try again."}), 502
+
+    if not detail:
+        return jsonify({"error": "Elaborator returned empty content"}), 502
+
+    try:
+        update_event_detail(db, event_id, detail)
+    except PyMongoError:
+        logger.warning("Failed to persist event detail for %s; returning generated content anyway", event_id)
+
+    return jsonify({"detail": detail, "cached": False})
+
+
 @api_bp.route("/sessions/<session_id>/narrative", methods=["GET"])
 def get_narrative(session_id: str):
     db = get_db()
@@ -297,6 +460,14 @@ def create_new_comparison():
     if len(query_a) > MAX_QUERY_LENGTH or len(query_b) > MAX_QUERY_LENGTH:
         return jsonify({"error": f"Each query must be at most {MAX_QUERY_LENGTH} characters"}), 400
 
+    context_a = (body.get("attachment_context_a") or "").strip()
+    context_b = (body.get("attachment_context_b") or "").strip()
+    if len(context_a) > MAX_ATTACHMENT_CONTEXT_LENGTH or len(context_b) > MAX_ATTACHMENT_CONTEXT_LENGTH:
+        return jsonify({"error": f"attachment_context must be at most {MAX_ATTACHMENT_CONTEXT_LENGTH} characters"}), 400
+
+    enriched_a = f"{query_a}\n\n--- Attached Context ---\n{context_a}" if context_a else query_a
+    enriched_b = f"{query_b}\n\n--- Attached Context ---\n{context_b}" if context_b else query_b
+
     config = {
         "max_depth": min(int(body.get("max_depth", 1)), MAX_CYCLES_LIMIT),
         "max_cycles": min(int(body.get("max_cycles", 2)), MAX_CYCLES_LIMIT),
@@ -308,14 +479,14 @@ def create_new_comparison():
 
     db = get_db()
     try:
-        session_id_a, _ = create_session(db, query_a, config)
-        session_id_b, _ = create_session(db, query_b, config)
-        comparison_id = create_comparison(db, query_a, query_b, session_id_a, session_id_b)
+        session_id_a, _ = create_session(db, enriched_a, config)
+        session_id_b, _ = create_session(db, enriched_b, config)
+        comparison_id = create_comparison(db, enriched_a, enriched_b, session_id_a, session_id_b)
     except PyMongoError:
         return jsonify({"error": "Database unavailable. Please configure MONGODB_URI in backend/.env"}), 503
 
-    start_orchestrator(session_id_a, query_a, config, db)
-    start_orchestrator(session_id_b, query_b, config, db)
+    start_orchestrator(session_id_a, enriched_a, config, db)
+    start_orchestrator(session_id_b, enriched_b, config, db)
     start_comparison_watcher(comparison_id, session_id_a, session_id_b, db)
 
     return jsonify({

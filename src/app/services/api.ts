@@ -12,6 +12,32 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
   return res.json();
 }
 
+export interface ParsedAttachment {
+  text: string;
+  name: string;
+  type: 'pdf' | 'docx' | 'image' | 'url';
+}
+
+export function parseAttachment(formData: FormData): Promise<ParsedAttachment> {
+  return fetch(`${BASE_URL}/api/parse-attachment`, {
+    method: 'POST',
+    body: formData,
+  }).then(async (res) => {
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      throw new Error(body.error || `Request failed: ${res.status}`);
+    }
+    return res.json();
+  });
+}
+
+export function parseUrl(url: string): Promise<ParsedAttachment> {
+  return request('/api/parse-attachment', {
+    method: 'POST',
+    body: JSON.stringify({ url }),
+  });
+}
+
 export interface CreateSessionResponse {
   session_id: string;
   query_id: string;
@@ -34,6 +60,7 @@ export interface SessionConfig {
   max_sources_per_thread: number;
   focus_threads: string[];
   max_threads?: number;
+  attachment_context?: string;
 }
 
 export function createSession(query: string, config: SessionConfig): Promise<CreateSessionResponse> {
@@ -53,6 +80,15 @@ export function getTimeline(sessionId: string) {
 
 export function getNarrative(sessionId: string): Promise<{ narrative: string }> {
   return request(`/api/sessions/${sessionId}/narrative`);
+}
+
+export interface EventDetailResponse {
+  detail: string;
+  cached: boolean;
+}
+
+export function getEventDetail(sessionId: string, eventId: string): Promise<EventDetailResponse> {
+  return request<EventDetailResponse>(`/api/sessions/${sessionId}/events/${eventId}/detail`);
 }
 
 export function deepenThread(sessionId: string, threadId: string) {
@@ -84,6 +120,8 @@ export interface ComparisonConfig {
   max_cycles: number;
   max_sources_per_thread: number;
   max_threads?: number;
+  attachment_context_a?: string;
+  attachment_context_b?: string;
 }
 
 export function createComparison(

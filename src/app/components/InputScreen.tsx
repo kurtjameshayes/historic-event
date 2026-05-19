@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Search, Settings2, Sparkles, AlertCircle, Clock, Brain, GitBranch } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { ImageWithFallback } from './figma/ImageWithFallback';
+import { AttachmentManager, buildAttachmentContext, Attachment } from './AttachmentManager';
 
 interface InputScreenProps {
   onSubmit: (query: string, config: any) => void;
@@ -16,11 +17,20 @@ export function InputScreen({ onSubmit, error, onAboutClick }: InputScreenProps)
   const [cycles, setCycles] = useState(1);
   const [sourcesPerThread, setSourcesPerThread] = useState(3);
   const [focusThreads, setFocusThreads] = useState('');
+  const [attachments, setAttachments] = useState<Attachment[]>([]);
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
     if (!query.trim()) return;
-    onSubmit(query, { depth, cycles, sourcesPerThread, focusThreads: focusThreads.split(',').map(t => t.trim()).filter(Boolean), maxThreads: 5 });
+    const attachmentContext = buildAttachmentContext(attachments);
+    onSubmit(query, {
+      depth,
+      cycles,
+      sourcesPerThread,
+      focusThreads: focusThreads.split(',').map(t => t.trim()).filter(Boolean),
+      maxThreads: 5,
+      attachmentContext,
+    });
   };
 
   const suggestions = [
@@ -87,8 +97,8 @@ export function InputScreen({ onSubmit, error, onAboutClick }: InputScreenProps)
                 Investigate
               </button>
             </div>
-            <div className="px-4 pb-2 flex items-center justify-between border-t border-bronze-100 pt-2">
-              <div className="flex flex-wrap gap-2 justify-center flex-1">
+            <div className="px-4 pb-3 border-t border-bronze-100 pt-2 space-y-2">
+              <div className="flex flex-wrap gap-2 justify-center">
                 {suggestions.map((sug, i) => (
                   <button
                     key={i}
@@ -100,14 +110,7 @@ export function InputScreen({ onSubmit, error, onAboutClick }: InputScreenProps)
                   </button>
                 ))}
               </div>
-              <button
-                type="button"
-                onClick={() => setShowAdvanced(!showAdvanced)}
-                className="hidden text-sm flex items-center gap-1.5 text-manuscript-600 hover:text-manuscript-900 transition-colors py-2 px-3 rounded-lg hover:bg-manuscript-50"
-              >
-                <Settings2 className="w-4 h-4" />
-                Advanced config
-              </button>
+              <AttachmentManager attachments={attachments} onChange={setAttachments} />
             </div>
             <AnimatePresence>
               {showAdvanced && (

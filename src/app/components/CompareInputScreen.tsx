@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { GitCompareArrows, Settings2, Sparkles, AlertCircle, Clock } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { ImageWithFallback } from './figma/ImageWithFallback';
+import { AttachmentManager, buildAttachmentContext, Attachment } from './AttachmentManager';
 
 interface CompareInputScreenProps {
   onSubmit: (queryA: string, queryB: string, config: any) => void;
@@ -21,11 +22,20 @@ export function CompareInputScreen({ onSubmit, error }: CompareInputScreenProps)
   const [depth, setDepth] = useState(1);
   const [cycles, setCycles] = useState(1);
   const [sourcesPerThread, setSourcesPerThread] = useState(3);
+  const [attachmentsA, setAttachmentsA] = useState<Attachment[]>([]);
+  const [attachmentsB, setAttachmentsB] = useState<Attachment[]>([]);
 
   const handleCompare = (e: React.FormEvent) => {
     e.preventDefault();
     if (!queryA.trim() || !queryB.trim()) return;
-    onSubmit(queryA, queryB, { depth, cycles, sourcesPerThread, maxThreads: 5 });
+    onSubmit(queryA, queryB, {
+      depth,
+      cycles,
+      sourcesPerThread,
+      maxThreads: 5,
+      attachmentContextA: buildAttachmentContext(attachmentsA),
+      attachmentContextB: buildAttachmentContext(attachmentsB),
+    });
   };
 
   const applySuggestionPair = (pair: typeof SUGGESTION_PAIRS[0]) => {
@@ -77,6 +87,9 @@ export function CompareInputScreen({ onSubmit, error }: CompareInputScreenProps)
                   rows={3}
                   className="w-full px-4 py-3 text-base bg-parchment-50/50 border border-bronze-200 rounded-xl outline-none focus:ring-2 focus:ring-bronze-400 focus:border-bronze-400 text-manuscript-900 placeholder:text-manuscript-400 resize-none"
                 />
+                <div className="mt-2">
+                  <AttachmentManager attachments={attachmentsA} onChange={setAttachmentsA} />
+                </div>
               </div>
               <div className="p-4 border-t md:border-t-0 border-bronze-100">
                 <label className="block text-xs font-bold text-manuscript-500 uppercase tracking-wider mb-2 text-left">
@@ -89,6 +102,9 @@ export function CompareInputScreen({ onSubmit, error }: CompareInputScreenProps)
                   rows={3}
                   className="w-full px-4 py-3 text-base bg-parchment-50/50 border border-bronze-200 rounded-xl outline-none focus:ring-2 focus:ring-bronze-400 focus:border-bronze-400 text-manuscript-900 placeholder:text-manuscript-400 resize-none"
                 />
+                <div className="mt-2">
+                  <AttachmentManager attachments={attachmentsB} onChange={setAttachmentsB} />
+                </div>
               </div>
             </div>
 

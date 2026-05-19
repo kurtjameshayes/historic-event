@@ -173,6 +173,15 @@ def get_event(db: Database, event_id: str) -> dict | None:
     return _serialize_doc(db.events.find_one({"_id": _oid(event_id)}))
 
 
+@_mongo_retry
+def update_event_detail(db: Database, event_id: str, detail: str):
+    """Persist a generated long-form deep-dive on an event so it can be served from cache."""
+    db.events.update_one(
+        {"_id": _oid(event_id)},
+        {"$set": {"detail": detail, "detail_updated_at": datetime.now(timezone.utc)}},
+    )
+
+
 # --------------- Causal Edges ---------------
 
 @_mongo_retry

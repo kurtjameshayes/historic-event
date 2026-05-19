@@ -39,6 +39,7 @@ export default function App() {
         max_sources_per_thread: c.sourcesPerThread ?? 3,
         focus_threads: c.focusThreads || [],
         max_threads: c.maxThreads ?? 5,
+        attachment_context: c.attachmentContext || undefined,
       });
       setSessionId(session_id);
       setAppState('RESEARCHING');
@@ -58,6 +59,8 @@ export default function App() {
         max_cycles: c.cycles,
         max_sources_per_thread: c.sourcesPerThread ?? 3,
         max_threads: c.maxThreads ?? 5,
+        attachment_context_a: c.attachmentContextA || undefined,
+        attachment_context_b: c.attachmentContextB || undefined,
       });
       setComparisonId(comparison_id);
       setCompareSessionIdA(session_id_a);
@@ -179,7 +182,7 @@ export default function App() {
         )}
 
         {appState === 'RESULTS' && dagData && (
-          <ResultsScreen data={dagData} onReset={handleReset} />
+          <ResultsScreen data={dagData} sessionId={sessionId} onReset={handleReset} />
         )}
 
         {appState === 'COMPARE_INPUT' && (

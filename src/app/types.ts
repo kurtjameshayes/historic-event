@@ -8,6 +8,7 @@ export interface EventNode {
   sources: Source[];
   is_target?: boolean;
   subtopic_id?: string;
+  detail?: string;
 }
 
 export interface CausalEdge {

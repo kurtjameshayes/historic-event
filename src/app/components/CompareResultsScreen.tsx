@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   GitCompareArrows,
@@ -13,10 +13,11 @@ import {
   ChevronDown,
   ChevronUp,
   X,
+  Loader2,
 } from 'lucide-react';
 import type { ComparisonData, DAGData, EventNode } from '../types';
 import { BrowseView } from './BrowseView';
-import { addComparisonSuggestion, addComparisonPromptChange } from '../services/api';
+import { addComparisonSuggestion, addComparisonPromptChange, getEventDetail } from '../services/api';
 
 interface CompareResultsScreenProps {
   data: ComparisonData;
@@ -54,6 +55,10 @@ function SideIndicator({ side }: { side: 'a' | 'b' | 'both' }) {
 export function CompareResultsScreen({ data, onReset }: CompareResultsScreenProps) {
   const [activeTab, setActiveTab] = useState<ViewTab>('comparison');
   const [selectedNode, setSelectedNode] = useState<EventNode | null>(null);
+  const [selectedNodeSessionId, setSelectedNodeSessionId] = useState<string | null>(null);
+  const [detailCache, setDetailCache] = useState<Record<string, string>>({});
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [detailError, setDetailError] = useState<string | null>(null);
   const [suggestionText, setSuggestionText] = useState('');
   const [suggestionSaved, setSuggestionSaved] = useState(false);
   const [showPromptChange, setShowPromptChange] = useState(false);
@@ -76,6 +81,110 @@ export function CompareResultsScreen({ data, onReset }: CompareResultsScreenProp
       setSuggestionText('');
       setTimeout(() => setSuggestionSaved(false), 3000);
     } catch { /* silent */ }
+  };
+
+  useEffect(() => {
+    if (!selectedNode || !selectedNodeSessionId) {
+      setDetailLoading(false);
+      setDetailError(null);
+      return;
+    }
+
+    const cacheKey = `${selectedNodeSessionId}:${selectedNode.id}`;
+    const cached = detailCache[cacheKey] ?? (selectedNode.detail || '').trim();
+    if (cached) {
+      setDetailLoading(false);
+      setDetailError(null);
+      return;
+    }
+
+    let cancelled = false;
+    setDetailLoading(true);
+    setDetailError(null);
+
+    getEventDetail(selectedNodeSessionId, selectedNode.id)
+      .then((res) => {
+        if (cancelled) return;
+        setDetailCache((prev) => ({ ...prev, [cacheKey]: res.detail }));
+        setDetailLoading(false);
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        setDetailError(err?.message || 'Failed to load detailed analysis.');
+        setDetailLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedNode, selectedNodeSessionId, detailCache]);
+
+  const handleSelectNode = (node: EventNode, sessionId: string) => {
+    setSelectedNode(node);
+    setSelectedNodeSessionId(sessionId);
+  };
+
+  const closeNodePanel = () => {
+    setSelectedNode(null);
+    setSelectedNodeSessionId(null);
+  };
+
+  const renderEventDetail = (node: EventNode) => {
+    if (!selectedNodeSessionId) {
+      return <p className="text-sm text-slate-700 leading-relaxed">{node.description}</p>;
+    }
+    const cacheKey = `${selectedNodeSessionId}:${node.id}`;
+    const cached = detailCache[cacheKey] ?? (node.detail || '').trim();
+    const paragraphs = cached
+      ? cached.split(/\n{2,}/).map(p => p.trim()).filter(Boolean)
+      : [];
+
+    if (detailLoading && !cached) {
+      return (
+        <div className="space-y-3">
+          <div className="flex items-center gap-2 text-xs font-medium text-slate-500">
+            <Loader2 className="w-3.5 h-3.5 animate-spin text-indigo-500" />
+            Composing detailed historical analysis…
+          </div>
+          <div className="space-y-2">
+            {[...Array(5)].map((_, i) => (
+              <div key={i} className="space-y-1.5">
+                <div className="h-3 bg-slate-100 rounded animate-pulse w-full" />
+                <div className="h-3 bg-slate-100 rounded animate-pulse w-[95%]" />
+                <div className="h-3 bg-slate-100 rounded animate-pulse w-[88%]" />
+                <div className="h-3 bg-slate-100 rounded animate-pulse w-[60%]" />
+              </div>
+            ))}
+          </div>
+          <p className="text-xs text-slate-700 leading-relaxed pt-2 border-t border-slate-100">
+            {node.description}
+          </p>
+        </div>
+      );
+    }
+
+    if (detailError && !cached) {
+      return (
+        <div className="space-y-3">
+          <p className="text-sm text-slate-700 leading-relaxed">{node.description}</p>
+          <p className="text-xs text-rose-600 bg-rose-50 border border-rose-100 rounded-md px-3 py-2">
+            {detailError}
+          </p>
+        </div>
+      );
+    }
+
+    if (paragraphs.length === 0) {
+      return <p className="text-sm text-slate-700 leading-relaxed">{node.description}</p>;
+    }
+
+    return (
+      <div className="space-y-3 text-sm text-slate-700 leading-relaxed">
+        {paragraphs.map((p, i) => (
+          <p key={i}>{p}</p>
+        ))}
+      </div>
+    );
   };
 
   const handlePromptChangeSubmit = async () => {
@@ -377,7 +486,10 @@ export function CompareResultsScreen({ data, onReset }: CompareResultsScreenProp
                     <h3 className="text-sm font-bold text-slate-800">{targetA?.name || data.query_a}</h3>
                   </div>
                   {dag_a ? (
-                    <BrowseView data={dag_a} onNodeClick={setSelectedNode} />
+                    <BrowseView
+                      data={dag_a}
+                      onNodeClick={(n) => handleSelectNode(n, data.session_id_a)}
+                    />
                   ) : (
                     <p className="text-sm text-slate-400 p-4">No data available for Timeline A</p>
                   )}
@@ -388,7 +500,10 @@ export function CompareResultsScreen({ data, onReset }: CompareResultsScreenProp
                     <h3 className="text-sm font-bold text-slate-800">{targetB?.name || data.query_b}</h3>
                   </div>
                   {dag_b ? (
-                    <BrowseView data={dag_b} onNodeClick={setSelectedNode} />
+                    <BrowseView
+                      data={dag_b}
+                      onNodeClick={(n) => handleSelectNode(n, data.session_id_b)}
+                    />
                   ) : (
                     <p className="text-sm text-slate-400 p-4">No data available for Timeline B</p>
                   )}
@@ -436,18 +551,18 @@ export function CompareResultsScreen({ data, onReset }: CompareResultsScreenProp
             animate={{ x: 0, opacity: 1 }}
             exit={{ x: 400, opacity: 0 }}
             transition={{ type: "spring", damping: 25, stiffness: 200 }}
-            className="fixed right-0 top-0 bottom-0 w-96 bg-white border-l border-slate-200 shadow-2xl flex flex-col z-50"
+            className="fixed right-0 top-0 bottom-0 w-[30rem] bg-white border-l border-slate-200 shadow-2xl flex flex-col z-50"
           >
             <div className="flex items-center justify-between p-4 border-b border-slate-100 bg-slate-50/50">
               <h3 className="font-semibold text-slate-800">Event Detail</h3>
-              <button onClick={() => setSelectedNode(null)} className="p-1.5 hover:bg-slate-200 rounded-md text-slate-500">
+              <button onClick={closeNodePanel} className="p-1.5 hover:bg-slate-200 rounded-md text-slate-500">
                 <X className="w-4 h-4" />
               </button>
             </div>
             <div className="flex-1 overflow-y-auto p-6 space-y-4">
               <h2 className="text-lg font-bold text-slate-900">{selectedNode.title}</h2>
               <p className="text-sm font-medium text-slate-500">{selectedNode.date}</p>
-              <p className="text-sm text-slate-700 leading-relaxed">{selectedNode.description}</p>
+              {renderEventDetail(selectedNode)}
               {selectedNode.sources.length > 0 && (
                 <div className="border-t border-slate-100 pt-4">
                   <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wide mb-2">Sources</h4>
