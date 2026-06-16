@@ -10,7 +10,7 @@ All backend configuration is managed through environment variables, loaded from 
 | `TAVILY_API_KEY` | Yes | `""` | Tavily Search API key. Obtain from [tavily.com](https://tavily.com). |
 | `MONGODB_URI` | Yes | `mongodb://localhost:27017/historic_event` | MongoDB connection string. Must include the database name. For Atlas, use the `mongodb+srv://` format. |
 | `FLASK_DEBUG` | No | `false` | Set to `true` to enable Flask debug mode with auto-reload. |
-| `LLM_MODEL` | No | `claude-sonnet-4-20250514` | The Anthropic model to use for all LLM calls. |
+| `LLM_MODEL` | No | `claude-opus-4-8` | The Anthropic model to use for all LLM calls. |
 | `LLM_MAX_TOKENS` | No | `4096` | Maximum tokens for LLM responses. |
 
 ## Application Defaults

@@ -14,7 +14,7 @@ class Config:
         "mongodb://localhost:27017/historic_event",
     )
     FLASK_DEBUG = os.getenv("FLASK_DEBUG", "false").lower() == "true"
-    LLM_MODEL = os.getenv("LLM_MODEL", "claude-sonnet-4-20250514")
+    LLM_MODEL = os.getenv("LLM_MODEL", "claude-opus-4-8")
     try:
         LLM_MAX_TOKENS = int(os.getenv("LLM_MAX_TOKENS", "4096"))
     except (ValueError, TypeError):

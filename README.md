@@ -49,7 +49,7 @@ The Vite dev server starts on `http://localhost:5211` and proxies `/api` request
 | `ANTHROPIC_API_KEY` | Anthropic Claude API key |
 | `TAVILY_API_KEY` | Tavily search API key |
 | `MONGODB_URI` | MongoDB connection string |
-| `LLM_MODEL` | Claude model name (default: `claude-sonnet-4-20250514`) |
+| `LLM_MODEL` | Claude model name (default: `claude-opus-4-8`) |
 
 ## API Endpoints
 
