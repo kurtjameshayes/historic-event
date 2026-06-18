@@ -18,13 +18,13 @@ export function NarrativeView({ data }: NarrativeViewProps) {
         <BookOpen className="absolute top-6 right-6 w-8 h-8 text-indigo-100 pointer-events-none" />
 
         <h2 className="text-2xl md:text-3xl font-semibold text-slate-900 mb-8 font-sans tracking-tight">
-          Causal Summary: {data.target_event.name}
+          Causal Summary: {data.target_event?.name || 'Untitled Investigation'}
         </h2>
         
         <div className="flex items-center gap-4 text-sm font-sans text-slate-500 mb-10 pb-6 border-b border-slate-100">
           <div className="flex items-center gap-1.5 bg-slate-50 px-3 py-1.5 rounded-lg">
             <Clock className="w-4 h-4" />
-            <span className="font-medium">{data.target_event.date}</span>
+            <span className="font-medium">{data.target_event?.date || 'Date unknown'}</span>
           </div>
           <div className="flex items-center gap-1.5 bg-indigo-50 text-indigo-700 px-3 py-1.5 rounded-lg font-medium">
             <FileText className="w-4 h-4" />

@@ -136,7 +136,7 @@ export function ResultsScreen({ data, sessionId, onReset }: ResultsScreenProps) 
             <Zap className="w-4 h-4" />
             Analysis Complete
           </div>
-          <h1 className="text-xl font-bold text-slate-800">{data.target_event.name}</h1>
+          <h1 className="text-xl font-bold text-slate-800">{data.target_event?.name || 'Untitled Investigation'}</h1>
         </div>
 
         <div className="flex items-center gap-4">
